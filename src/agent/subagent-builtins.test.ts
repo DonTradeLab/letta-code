@@ -10,6 +10,8 @@ import {
 import { __testSetBackend, type Backend } from "@/backend";
 
 let tempDir: string | null = null;
+let tempHome: string | null = null;
+const originalHome = process.env.HOME;
 
 function createTempProjectDir(): string {
   return mkdtempSync(join(tmpdir(), "letta-subagents-test-"));
@@ -19,13 +21,26 @@ function writeCustomSubagent(
   projectDir: string,
   fileName: string,
   content: string,
-) {
+): string {
   const agentsDir = join(projectDir, ".letta", "agents");
+  const filePath = join(agentsDir, fileName);
   mkdirSync(agentsDir, { recursive: true });
-  writeFileSync(join(agentsDir, fileName), content, "utf-8");
+  writeFileSync(filePath, content, "utf-8");
+  return filePath;
+}
+
+function writeGlobalSubagent(fileName: string, content: string): string {
+  if (!tempHome) throw new Error("Temporary HOME is not initialized");
+  return writeCustomSubagent(tempHome, fileName, content);
+}
+
+function reflectionModelOverlay(model: string): string {
+  return ["---", "name: reflection", `model: ${model}`, "---"].join("\n");
 }
 
 beforeEach(() => {
+  tempHome = mkdtempSync(join(tmpdir(), "letta-subagents-home-"));
+  process.env.HOME = tempHome;
   __testSetBackend(null);
   clearSubagentConfigCache();
 });
@@ -33,9 +48,18 @@ beforeEach(() => {
 afterEach(() => {
   __testSetBackend(null);
   clearSubagentConfigCache();
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
+  }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
     tempDir = null;
+  }
+  if (tempHome) {
+    rmSync(tempHome, { recursive: true, force: true });
+    tempHome = null;
   }
 });
 
@@ -207,6 +231,127 @@ Custom prompt body`,
     expect(configs.reflection).toBeDefined();
     expect(configs.reflection?.description).toBe("Custom reflection override");
     expect(configs.reflection?.recommendedModel).toBe("zaisigno/glm-5");
+  });
+
+  test("reloads a Sonnet reflection override as Grok in the same process", async () => {
+    tempDir = createTempProjectDir();
+    writeCustomSubagent(
+      tempDir,
+      "reflection.md",
+      reflectionModelOverlay("anthropic/claude-sonnet-4-6"),
+    );
+    expect(
+      (await getAllSubagentConfigs(tempDir)).reflection?.recommendedModel,
+    ).toBe("anthropic/claude-sonnet-4-6");
+
+    writeCustomSubagent(
+      tempDir,
+      "reflection.md",
+      reflectionModelOverlay("xai/grok-4"),
+    );
+
+    expect(
+      (await getAllSubagentConfigs(tempDir)).reflection?.recommendedModel,
+    ).toBe("xai/grok-4");
+  });
+
+  test("detects same-size config rewrites without an explicit cache clear", async () => {
+    tempDir = createTempProjectDir();
+    writeCustomSubagent(
+      tempDir,
+      "reflection.md",
+      reflectionModelOverlay("xai/grok-4"),
+    );
+    expect(
+      (await getAllSubagentConfigs(tempDir)).reflection?.recommendedModel,
+    ).toBe("xai/grok-4");
+
+    writeCustomSubagent(
+      tempDir,
+      "reflection.md",
+      reflectionModelOverlay("zai/glm-55"),
+    );
+    expect(
+      (await getAllSubagentConfigs(tempDir)).reflection?.recommendedModel,
+    ).toBe("zai/glm-55");
+  });
+
+  test("detects additions and removals without an explicit cache clear", async () => {
+    tempDir = createTempProjectDir();
+    expect(
+      (await getAllSubagentConfigs(tempDir))["quota-router"],
+    ).toBeUndefined();
+
+    const configPath = writeCustomSubagent(
+      tempDir,
+      "quota-router.md",
+      [
+        "---",
+        "name: quota-router",
+        "description: Routes around exhausted providers",
+        "model: xai/grok-4",
+        "---",
+        "Route reflection work.",
+      ].join("\n"),
+    );
+    expect(
+      (await getAllSubagentConfigs(tempDir))["quota-router"]?.recommendedModel,
+    ).toBe("xai/grok-4");
+
+    rmSync(configPath);
+    expect(
+      (await getAllSubagentConfigs(tempDir))["quota-router"],
+    ).toBeUndefined();
+  });
+
+  test("re-evaluates project-over-global precedence after removal", async () => {
+    tempDir = createTempProjectDir();
+    writeGlobalSubagent(
+      "reflection.md",
+      reflectionModelOverlay("anthropic/claude-sonnet-4-6"),
+    );
+    const projectConfig = writeCustomSubagent(
+      tempDir,
+      "reflection.md",
+      reflectionModelOverlay("xai/grok-4"),
+    );
+
+    expect(
+      (await getAllSubagentConfigs(tempDir)).reflection?.recommendedModel,
+    ).toBe("xai/grok-4");
+
+    rmSync(projectConfig);
+    expect(
+      (await getAllSubagentConfigs(tempDir)).reflection?.recommendedModel,
+    ).toBe("anthropic/claude-sonnet-4-6");
+  });
+
+  test("shares a coherent refreshed config across concurrent callers", async () => {
+    tempDir = createTempProjectDir();
+    writeCustomSubagent(
+      tempDir,
+      "reflection.md",
+      reflectionModelOverlay("anthropic/claude-sonnet-4-6"),
+    );
+    await getAllSubagentConfigs(tempDir);
+    writeCustomSubagent(
+      tempDir,
+      "reflection.md",
+      reflectionModelOverlay("xai/grok-4"),
+    );
+
+    const configs = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        getAllSubagentConfigs(tempDir as string),
+      ),
+    );
+
+    expect(
+      configs.every(
+        (entry) => entry.reflection?.recommendedModel === "xai/grok-4",
+      ),
+    ).toBe(true);
+    expect(configs.every((entry) => entry === configs[0])).toBe(true);
   });
 
   test("bodyless reflection config overlays model without replacing the built-in", async () => {

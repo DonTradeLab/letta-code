@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
@@ -8,6 +14,7 @@ import {
   createBackgroundOutputFile,
   getBackgroundOutputDir,
 } from "@/tools/impl/process_manager";
+import { executeTool, loadSpecificTools } from "@/tools/manager";
 
 const originalScratchpad = process.env.LETTA_SCRATCHPAD;
 const originalTmpdir = process.env.TMPDIR;
@@ -86,6 +93,19 @@ describe("background output files", () => {
     expect(basename(outputFile)).toBe("task_scratchpad.log");
     expect(existsSync(outputFile)).toBe(true);
     expectPosixMode(outputFile, 0o600);
+  });
+
+  test("marks scratchpad setup failures as infrastructure failures", async () => {
+    const root = makeTempRoot("letta-bg-blocked-");
+    const blocker = join(root, "not-a-directory");
+    writeFileSync(blocker, "blocked");
+    process.env.LETTA_SCRATCHPAD = join(blocker, "child");
+
+    await loadSpecificTools(["Bash"]);
+    const result = await executeTool("Bash", { command: "pwd" });
+
+    expect(result.status).toBe("error");
+    expect(result.failureKind).toBe("infrastructure");
   });
 
   test.skipIf(!existsSync("/dev/full"))(

@@ -16,7 +16,7 @@ import type { EnqueueReceipt } from "@/backend/api/conversation-enqueue";
 import { buildAgentReference } from "@/cli/helpers/app-urls";
 import { debugWarn } from "@/utils/debug";
 import { getErrorMessage } from "@/utils/error";
-import type { SubagentResult } from ".";
+import type { SubagentResult, SubagentToolExecutionSummary } from ".";
 
 /**
  * State tracked during subagent execution
@@ -38,6 +38,8 @@ export interface ExecutionState {
     stepCount?: number;
   } | null;
   displayedToolCalls: Set<string>;
+  toolResultStatuses?: Map<string, "success" | "error">;
+  infrastructureFailureIds?: Set<string>;
 }
 
 /**
@@ -118,6 +120,49 @@ function handleToolCallEvent(
       );
     }
   }
+}
+
+function handleToolReturnEvent(
+  event: {
+    tool_call_id?: string;
+    status?: string;
+    failure_kind?: string;
+  },
+  state: ExecutionState,
+): void {
+  if (!event.tool_call_id) return;
+  if (event.status !== "success" && event.status !== "error") return;
+  state.toolResultStatuses ??= new Map();
+  state.toolResultStatuses.set(event.tool_call_id, event.status);
+  if (event.status === "error" && event.failure_kind === "infrastructure") {
+    state.infrastructureFailureIds ??= new Set();
+    state.infrastructureFailureIds.add(event.tool_call_id);
+  }
+}
+
+export function summarizeToolExecution(
+  state: Pick<
+    ExecutionState,
+    "displayedToolCalls" | "toolResultStatuses" | "infrastructureFailureIds"
+  >,
+): SubagentToolExecutionSummary | undefined {
+  const attemptedIds = new Set(state.displayedToolCalls);
+  for (const id of state.toolResultStatuses?.keys() ?? []) attemptedIds.add(id);
+  if (attemptedIds.size === 0) return undefined;
+
+  let succeeded = 0;
+  let failed = 0;
+  for (const status of state.toolResultStatuses?.values() ?? []) {
+    if (status === "success") succeeded += 1;
+    else failed += 1;
+  }
+  return {
+    attempted: attemptedIds.size,
+    succeeded,
+    failed,
+    infrastructureFailed: state.infrastructureFailureIds?.size ?? 0,
+    incomplete: Math.max(0, attemptedIds.size - succeeded - failed),
+  };
 }
 
 /**
@@ -240,6 +285,8 @@ export function processStreamEvent(
         // then forward the message for WS streaming to the web UI.
         if (event.message_type === "tool_call_message") {
           handleToolCallEvent(event, state, subagentId);
+        } else if (event.message_type === "tool_return_message") {
+          handleToolReturnEvent(event, state);
         }
         emitStreamEvent(subagentId, event);
         break;

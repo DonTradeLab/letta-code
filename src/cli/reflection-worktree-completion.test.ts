@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -367,6 +373,137 @@ describe("reflection worktree completion messaging", () => {
       reflection_worktree_id: worktree.id,
       commit_count: 0,
     });
+  });
+
+  test("all failed tool executions cannot become no_changes or consume transcript", async () => {
+    const worktree = await createReflectionMemoryWorktree({
+      parentMemoryDir: memoryDir,
+    });
+
+    const result = await finalizeLaunch(worktree, true, {
+      toolExecution: {
+        attempted: 2,
+        succeeded: 0,
+        failed: 2,
+        infrastructureFailed: 2,
+        incomplete: 0,
+      },
+    });
+
+    expect(result.integration.status).toBe("failed");
+    expect(result.completionSuccess).toBe(false);
+    expect(result.completionMessage).toBe(
+      "Tried to reflect, but an infrastructure tool failure was not followed by a memory change; the reflection window remains pending for retry.",
+    );
+    expect(existsSync(worktree.worktreeDir)).toBe(false);
+  });
+
+  test("successful analysis with no memory changes remains legitimate no_changes", async () => {
+    const worktree = await createReflectionMemoryWorktree({
+      parentMemoryDir: memoryDir,
+    });
+
+    const result = await finalizeLaunch(worktree, true, {
+      toolExecution: {
+        attempted: 2,
+        succeeded: 2,
+        failed: 0,
+        infrastructureFailed: 0,
+        incomplete: 0,
+      },
+    });
+
+    expect(result.integration.status).toBe("no_changes");
+    expect(result.completionSuccess).toBe(true);
+    expect(result.completionMessage).toContain("no memory changes were needed");
+  });
+
+  test("a normal command failure followed by successful analysis remains recoverable", async () => {
+    const worktree = await createReflectionMemoryWorktree({
+      parentMemoryDir: memoryDir,
+    });
+
+    const result = await finalizeLaunch(worktree, true, {
+      toolExecution: {
+        attempted: 2,
+        succeeded: 1,
+        failed: 1,
+        infrastructureFailed: 0,
+        incomplete: 0,
+      },
+    });
+
+    expect(result.integration.status).toBe("no_changes");
+    expect(result.completionSuccess).toBe(true);
+  });
+
+  test("normal command errors only remain pending when every tool attempt failed", async () => {
+    const worktree = await createReflectionMemoryWorktree({
+      parentMemoryDir: memoryDir,
+    });
+
+    const result = await finalizeLaunch(worktree, true, {
+      toolExecution: {
+        attempted: 1,
+        succeeded: 0,
+        failed: 1,
+        infrastructureFailed: 0,
+        incomplete: 0,
+      },
+    });
+
+    expect(result.integration.status).toBe("failed");
+    expect(result.completionMessage).toContain(
+      "every attempted tool execution failed",
+    );
+  });
+
+  test("an innocuous success cannot mask infrastructure failure without a diff", async () => {
+    const worktree = await createReflectionMemoryWorktree({
+      parentMemoryDir: memoryDir,
+    });
+
+    const result = await finalizeLaunch(worktree, true, {
+      toolExecution: {
+        attempted: 2,
+        succeeded: 1,
+        failed: 1,
+        infrastructureFailed: 1,
+        incomplete: 0,
+      },
+    });
+
+    expect(result.integration.status).toBe("failed");
+    expect(result.completionSuccess).toBe(false);
+    expect(result.completionMessage).toContain(
+      "infrastructure tool failure was not followed by a memory change",
+    );
+    expect(result.completionMessage).toContain("remains pending");
+  });
+
+  test("an infrastructure error recovered with a committed effect remains successful", async () => {
+    const worktree = await createReflectionMemoryWorktree({
+      parentMemoryDir: memoryDir,
+    });
+    writeFileSync(join(worktree.worktreeDir, "reflection.md"), "draft\n");
+    git(worktree.worktreeDir, ["add", "reflection.md"]);
+    git(worktree.worktreeDir, ["commit", "-m", "reflection"]);
+
+    const result = await finalizeLaunch(worktree, true, {
+      toolExecution: {
+        attempted: 2,
+        succeeded: 1,
+        failed: 1,
+        infrastructureFailed: 1,
+        incomplete: 0,
+      },
+    });
+
+    expect(result.integration.status).toBe("merged");
+    expect(result.completionSuccess).toBe(true);
+    expect(readFileSync(join(memoryDir, "reflection.md"), "utf-8")).toBe(
+      "draft\n",
+    );
   });
 
   test("failed reflection surfaces a model configuration error", async () => {

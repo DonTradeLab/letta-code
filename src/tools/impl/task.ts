@@ -21,6 +21,7 @@ import {
   getAllSubagentConfigs,
   type SubagentConfig,
   type SubagentMemoryScope,
+  type SubagentToolExecutionSummary,
 } from "@/agent/subagents";
 import { spawnSubagent } from "@/agent/subagents/manager";
 import {
@@ -84,6 +85,7 @@ type TaskRunResult = {
   totalTokens?: number;
   stepCount?: number;
   durationMs?: number;
+  toolExecution?: SubagentToolExecutionSummary;
 };
 
 export interface SpawnBackgroundSubagentTaskArgs {
@@ -158,6 +160,7 @@ export interface SpawnBackgroundSubagentTaskArgs {
     stepCount?: number;
     durationMs?: number;
     report?: string;
+    toolExecution?: SubagentToolExecutionSummary;
   }) => void | Promise<void>;
   /**
    * Optional dependency overrides for tests.
@@ -511,6 +514,7 @@ export function spawnBackgroundSubagentTask(
           stepCount: result.stepCount,
           durationMs: result.durationMs,
           report: result.report,
+          toolExecution: result.toolExecution,
         });
       } catch (error) {
         const errorMessage =

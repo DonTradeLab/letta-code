@@ -4,6 +4,7 @@ import {
   looksLikeTruncatedStreamJson,
   parseResultFromStdout,
   processStreamEvent,
+  summarizeToolExecution,
 } from "./subagent-stream";
 
 const initLine = JSON.stringify({
@@ -72,6 +73,81 @@ function freshState(): ExecutionState {
     displayedToolCalls: new Set(),
   };
 }
+
+describe("structured tool execution summary", () => {
+  test("records an all-failed tool attempt without reading error text", () => {
+    const state = freshState();
+    processStreamEvent(
+      JSON.stringify({
+        type: "message",
+        message_type: "tool_call_message",
+        tool_call: {
+          tool_call_id: "call-1",
+          name: "Bash",
+          arguments: "{}",
+        },
+      }),
+      state,
+      "sub-1",
+    );
+    processStreamEvent(
+      JSON.stringify({
+        type: "message",
+        message_type: "tool_return_message",
+        tool_call_id: "call-1",
+        status: "error",
+        failure_kind: "infrastructure",
+        tool_return: "arbitrary failure",
+      }),
+      state,
+      "sub-1",
+    );
+
+    expect(summarizeToolExecution(state)).toEqual({
+      attempted: 1,
+      succeeded: 0,
+      failed: 1,
+      infrastructureFailed: 1,
+      incomplete: 0,
+    });
+  });
+
+  test("preserves a later successful tool result as real recovery", () => {
+    const state = freshState();
+    for (const [id, status] of [
+      ["call-1", "error"],
+      ["call-2", "success"],
+    ] as const) {
+      processStreamEvent(
+        JSON.stringify({
+          type: "message",
+          message_type: "tool_call_message",
+          tool_call: { tool_call_id: id, name: "Bash", arguments: "{}" },
+        }),
+        state,
+        "sub-1",
+      );
+      processStreamEvent(
+        JSON.stringify({
+          type: "message",
+          message_type: "tool_return_message",
+          tool_call_id: id,
+          status,
+        }),
+        state,
+        "sub-1",
+      );
+    }
+
+    expect(summarizeToolExecution(state)).toEqual({
+      attempted: 2,
+      succeeded: 1,
+      failed: 1,
+      infrastructureFailed: 0,
+      incomplete: 0,
+    });
+  });
+});
 
 describe("result envelope parsing", () => {
   test("reads the error text of a Cloud-routed failure from `error`, not `result`", () => {

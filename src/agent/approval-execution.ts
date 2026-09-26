@@ -279,8 +279,8 @@ async function executeSingleDecision(
       // Update UI if callback provided (interactive mode)
       // Note: UI display uses text-only version, backend gets full multimodal content
       if (onChunk) {
-        onChunk({
-          message_type: "tool_return_message",
+        const toolReturnMessage = {
+          message_type: "tool_return_message" as const,
           id: "dummy",
           date: new Date().toISOString(),
           tool_call_id: decision.approval.toolCallId,
@@ -288,7 +288,11 @@ async function executeSingleDecision(
           status: toolResult.status,
           stdout: toolResult.stdout,
           stderr: toolResult.stderr,
-        });
+          ...(toolResult.failureKind && {
+            failure_kind: toolResult.failureKind,
+          }),
+        };
+        onChunk(toolReturnMessage);
       }
 
       return {

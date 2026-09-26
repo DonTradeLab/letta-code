@@ -7,7 +7,9 @@
  * - Managing parallel subagent execution
  */
 
+import { mkdirSync, rmSync } from "node:fs";
 import { platform } from "node:os";
+import { join } from "node:path";
 import { resolveActingUserId } from "@/agent/acting-user";
 import { getConversationId, getCurrentAgentId } from "@/agent/context";
 import { getScopedMemoryFilesystemRoot } from "@/agent/memory-filesystem";
@@ -42,6 +44,7 @@ import { debugLog, debugWarn } from "@/utils/debug";
 import { getErrorMessage } from "@/utils/error";
 import { isSubagentStdoutLostError } from "@/utils/subagent-stdout-failure";
 import { wrapManagedWorkloadLauncher } from "@/utils/systemd-workload-scope";
+import { getTranscriptRoot } from "@/utils/transcript-paths";
 import {
   getAllSubagentConfigs,
   resolveSubagentConfigForMemoryFormat,
@@ -70,6 +73,7 @@ import {
   looksLikeTruncatedStreamJson,
   parseResultFromStdout,
   processStreamEvent,
+  summarizeToolExecution,
 } from "./subagent-stream";
 
 // ============================================================================
@@ -290,9 +294,25 @@ async function executeSubagent(
   parentAgentName?: string | null,
   parentConversationId?: string,
 ): Promise<SubagentResult> {
-  const withModel = (result: SubagentResult): SubagentResult =>
-    model ? { ...result, model } : result;
-
+  let executionState: ExecutionState | undefined;
+  const withModel = (result: SubagentResult): SubagentResult => {
+    const toolExecution = executionState
+      ? summarizeToolExecution(executionState)
+      : undefined;
+    return {
+      ...result,
+      ...(model ? { model } : {}),
+      ...(toolExecution ? { toolExecution } : {}),
+    };
+  };
+  const scratchpadDir =
+    memoryScope || config.launchProfile === "memory-subagent"
+      ? join(
+          getTranscriptRoot(),
+          ".subagent-scratch",
+          `${subagentId}-${isRetry ? "retry" : "initial"}`,
+        )
+      : undefined;
   // Check if already aborted before starting
   if (signal?.aborted) {
     return withModel({
@@ -309,6 +329,8 @@ async function executeSubagent(
   }
 
   try {
+    if (scratchpadDir)
+      mkdirSync(scratchpadDir, { recursive: true, mode: 0o700 });
     const activeBackend = getBackend();
     const backendMode: BackendMode = activeBackend.capabilities.localMemfs
       ? "local"
@@ -401,6 +423,7 @@ async function executeSubagent(
       inheritedBaseUrl,
       actingUserId: actingUserIdOverride,
       transcriptPath,
+      scratchpadDir,
       subagentName:
         existingAgentId || existingConversationId
           ? undefined
@@ -468,6 +491,7 @@ async function executeSubagent(
       resultStats: null,
       displayedToolCalls: new Set(),
     };
+    executionState = state;
 
     // Parse child stdout manually instead of using readline. This keeps the
     // stream handling simple and avoids Bun/runtime-specific instability in
@@ -698,6 +722,10 @@ async function executeSubagent(
       success: false,
       error: getErrorMessage(error),
     });
+  } finally {
+    if (scratchpadDir) {
+      rmSync(scratchpadDir, { recursive: true, force: true });
+    }
   }
 }
 

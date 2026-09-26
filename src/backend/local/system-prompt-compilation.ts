@@ -269,10 +269,15 @@ function pad2(value: number): string {
 }
 
 function formatUtcTimestamp(date: Date): string {
-  const hours = date.getUTCHours();
-  const hour12 = hours % 12 || 12;
-  const meridiem = hours < 12 ? "AM" : "PM";
-  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ${pad2(hour12)}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())} ${meridiem} UTC+0000`;
+  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} UTC`;
+}
+
+function approximateMessageCount(count: number): string {
+  if (count < 50) return "fewer than 50";
+  if (count < 200) return "over 50";
+  if (count < 1_000) return "over 200";
+  if (count < 5_000) return "over 1,000";
+  return "over 5,000";
 }
 
 function compileMemoryMetadata(input: {
@@ -286,7 +291,7 @@ function compileMemoryMetadata(input: {
     `- AGENT_ID: ${input.agentId}`,
     `- CONVERSATION_ID: ${input.conversationId}`,
     `- System prompt last recompiled: ${formatUtcTimestamp(input.compiledAt)}`,
-    `- ${input.previousMessageCount} previous messages between you and the user are stored in recall memory`,
+    `- ${approximateMessageCount(input.previousMessageCount)} previous messages between you and the user are stored in recall memory`,
     "</memory_metadata>",
   ].join("\n");
 }

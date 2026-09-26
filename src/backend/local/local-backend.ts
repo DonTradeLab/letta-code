@@ -45,6 +45,10 @@ import {
   summarizeLocalMessagesSlidingWindow,
 } from "./compaction";
 import {
+  formatMidConversationMemoryUpdate,
+  supportsMidConversationSystemMessages,
+} from "./local-backend-mid-conversation";
+import {
   createLocalExecutor,
   type LocalBackendExecutionMode,
 } from "./local-executor-factory";
@@ -224,25 +228,6 @@ function localCompactionSettingsForStorage(
   if (!hasLocalSetting) return undefined;
 
   return { ...settings };
-}
-
-function supportsMidConversationSystemMessages(
-  agent: LocalAgentRecord,
-): boolean {
-  return agent.model === "anthropic/claude-opus-4-8";
-}
-
-function formatMidConversationMemoryUpdate(
-  compiled: LocalCompiledSystemPrompt,
-): string {
-  return [
-    "<memory_update>",
-    `The local memory filesystem has been edited and committed at revision ${compiled.memfsRevision ?? "unknown"}.`,
-    "This updates part of your persona/system memory. Treat the following freshly rendered memory context as authoritative from now on; where it conflicts with earlier memory context, this newer memory context wins.",
-    "",
-    compiled.coreMemory.trimEnd(),
-    "</memory_update>",
-  ].join("\n");
 }
 
 export class LocalBackend extends HeadlessBackend {

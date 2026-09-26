@@ -155,6 +155,46 @@ describe("spawnBackgroundSubagentTask", () => {
     expect(outputContent).toContain("[Task completed]");
   });
 
+  test("forwards structured tool execution evidence to completion consumers", async () => {
+    const toolExecution = {
+      attempted: 2,
+      succeeded: 0,
+      failed: 2,
+      infrastructureFailed: 2,
+      incomplete: 0,
+    };
+    const spawnSubagentImpl = mock(async () => ({
+      agentId: "agent-123",
+      conversationId: "default",
+      report: "unable to inspect",
+      success: true,
+      toolExecution,
+    }));
+    const onComplete = mock(async () => {});
+
+    spawnBackgroundSubagentTask({
+      subagentType: "reflection",
+      prompt: "Reflect",
+      description: "Reflect on memory",
+      onComplete,
+      deps: {
+        spawnSubagentImpl,
+        addToMessageQueueImpl,
+        formatTaskNotificationImpl,
+        runSubagentStopHooksImpl,
+        generateSubagentIdImpl,
+        registerSubagentImpl,
+        completeSubagentImpl,
+        getSubagentSnapshotImpl,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ toolExecution }),
+    );
+  });
+
   test("keeps launch-time acting user through delayed completion", async () => {
     let resolveSpawn: ((result: SubagentResult) => void) | undefined;
     const spawnSubagentImpl = mock(

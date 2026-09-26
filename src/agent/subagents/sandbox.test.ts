@@ -1,15 +1,26 @@
 import { expect, test } from "bun:test";
 
+import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { join } from "node:path";
 import {
   type WrapSubagentLauncherInput,
   wrapSubagentLauncher,
 } from "@/agent/subagents/sandbox";
+import { composeSubagentChildEnv } from "@/agent/subagents/subagent-launcher";
 import { getLocalBackendCrossAgentTreeRoot } from "@/backend/local/paths";
 import {
   canonicalizeRoot,
   getDefaultAgentsTreeRoot,
 } from "@/permissions/sandbox-policy";
 import {
+  detectSandboxBackend,
   isFsSandboxEnabled,
   isShellSandboxEnabled,
   type SandboxAvailability,
@@ -172,3 +183,97 @@ test("memoryScope confines a reflection subagent to an exact worktree plus git m
     ),
   ).toContain(canonicalizeRoot("/home/u/.letta/agents/parent"));
 });
+
+test.skipIf(process.platform !== "darwin")(
+  "real Node and zsh use private temp inside sandbox while external writes stay denied",
+  () => {
+    const availability = detectSandboxBackend();
+    if (!availability.backend) return;
+
+    const root = mkdtempSync(
+      join("/private/tmp", "letta-subagent-temp-proof-"),
+    );
+    const transcriptRoot = join(root, "transcripts");
+    const scratchpadDir = join(
+      transcriptRoot,
+      ".subagent-scratch",
+      "subagent-proof-initial",
+    );
+    const memoryRoot = join(root, "memory");
+    const outsidePath = join(root, "outside.txt");
+    mkdirSync(scratchpadDir, { recursive: true, mode: 0o700 });
+    mkdirSync(memoryRoot, { recursive: true, mode: 0o700 });
+    const previousTranscriptRoot = process.env.LETTA_TRANSCRIPT_ROOT;
+    process.env.LETTA_TRANSCRIPT_ROOT = transcriptRoot;
+
+    try {
+      const childEnv = composeSubagentChildEnv({
+        parentProcessEnv: {
+          ...process.env,
+          TMPDIR: "/private/var/folders/clara/T",
+          TMP: "/private/var/folders/clara/T",
+          TEMP: "/private/var/folders/clara/T",
+          TMPPREFIX: "/private/var/folders/clara/T/zsh",
+        },
+        parentAgentId: "agent-parent",
+        subagentType: "reflection",
+        launchProfile: "memory-subagent",
+        inheritedPrimaryRoot: memoryRoot,
+        scratchpadDir,
+      });
+      const shellCommand = [
+        `cat <<'EOF' > "$LETTA_SCRATCHPAD/heredoc.txt"`,
+        "heredoc-ok",
+        "EOF",
+        `if : > "$OUTSIDE_PATH" 2>/dev/null; then echo ZSH_EXTERNAL_ALLOWED; else echo ZSH_EXTERNAL_DENIED; fi`,
+      ].join("\n");
+      const script = `
+        const {spawnSync} = require("node:child_process");
+        const fs = require("node:fs");
+        const shell = spawnSync("/bin/zsh", ["-c", ${JSON.stringify(shellCommand)}], {env: process.env, encoding: "utf8"});
+        process.stdout.write(shell.stdout);
+        process.stdout.write(fs.readFileSync(process.env.LETTA_SCRATCHPAD + "/heredoc.txt", "utf8").trim() + "\\n");
+        try { fs.writeFileSync(process.env.OUTSIDE_PATH + ".node", "bad"); console.log("NODE_EXTERNAL_ALLOWED"); }
+        catch { console.log("NODE_EXTERNAL_DENIED"); }
+      `;
+      const wrapped = wrapSubagentLauncher({
+        launcher: { command: process.execPath, args: ["-e", script] },
+        launchProfile: "memory-subagent",
+        backendMode: "api",
+        memoryRoots: [memoryRoot],
+        inheritedPrimaryRoot: memoryRoot,
+        env: { LETTA_FS_SANDBOX: "1" },
+        availability,
+      });
+      expect(wrapped).not.toBeNull();
+
+      const run = spawnSync(wrapped?.command ?? "", wrapped?.args ?? [], {
+        env: {
+          ...childEnv,
+          ...wrapped?.sandboxEnv,
+          OUTSIDE_PATH: outsidePath,
+        },
+        encoding: "utf8",
+      });
+
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain("heredoc-ok");
+      expect(run.stdout).toContain("ZSH_EXTERNAL_DENIED");
+      expect(run.stdout).toContain("NODE_EXTERNAL_DENIED");
+      expect(readFileSync(join(scratchpadDir, "heredoc.txt"), "utf8")).toBe(
+        "heredoc-ok\n",
+      );
+      expect(existsSync(outsidePath)).toBe(false);
+      expect(existsSync(`${outsidePath}.node`)).toBe(false);
+      expect(childEnv.TMPDIR).toBe(scratchpadDir);
+      expect(childEnv.TMPPREFIX).toBe(join(scratchpadDir, "zsh"));
+    } finally {
+      if (previousTranscriptRoot === undefined) {
+        delete process.env.LETTA_TRANSCRIPT_ROOT;
+      } else {
+        process.env.LETTA_TRANSCRIPT_ROOT = previousTranscriptRoot;
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);

@@ -6,6 +6,7 @@
  * in the .letta/agents/ directory.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -74,6 +75,15 @@ export interface SubagentMemoryScope {
   readonlyRoots?: string[];
 }
 
+/** Structured execution evidence from the child tool stream. */
+export interface SubagentToolExecutionSummary {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  infrastructureFailed: number;
+  incomplete: number;
+}
+
 /**
  * Subagent execution result
  */
@@ -87,6 +97,7 @@ export interface SubagentResult {
   totalTokens?: number;
   stepCount?: number;
   durationMs?: number;
+  toolExecution?: SubagentToolExecutionSummary;
 }
 
 export interface SubagentConfig {
@@ -143,20 +154,58 @@ export const GLOBAL_AGENTS_DIR = getGlobalAgentsDir();
 // Cache
 // ============================================================================
 
+interface SubagentConfigCacheEntry {
+  fingerprint: string;
+  promise: Promise<Record<string, SubagentConfig>>;
+}
+
 /**
  * Consolidated cache for subagent configurations
  * - builtins: parsed once from bundled markdown, never changes
- * - configs: builtins + custom agents, invalidated when workingDir changes
+ * - configs: keyed by working directory and builtin mode; each entry is reused
+ *   only while the global and project config file contents still match
  */
 const cache = {
   builtins: {
     standard: null as Record<string, SubagentConfig> | null,
     localMemfs: null as Record<string, SubagentConfig> | null,
   },
-  configs: null as Record<string, SubagentConfig> | null,
-  workingDir: null as string | null,
-  localMemfs: null as boolean | null,
+  configs: new Map<string, SubagentConfigCacheEntry>(),
 };
+
+async function fingerprintSubagentDirectory(
+  directory: string,
+): Promise<string> {
+  try {
+    const entries = (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    const files = await Promise.all(
+      entries.map(async (entry) => {
+        try {
+          const content = await readFile(join(directory, entry.name));
+          return `${entry.name}:${createHash("sha256").update(content).digest("hex")}`;
+        } catch (error) {
+          return `${entry.name}:error:${getErrorMessage(error)}`;
+        }
+      }),
+    );
+    return `${directory}:${files.join(",")}`;
+  } catch (error) {
+    return `${directory}:error:${getErrorMessage(error)}`;
+  }
+}
+
+async function getSubagentConfigFingerprint(
+  workingDirectory: string,
+): Promise<string> {
+  return (
+    await Promise.all([
+      fingerprintSubagentDirectory(getGlobalAgentsDir()),
+      fingerprintSubagentDirectory(join(workingDirectory, AGENTS_DIR)),
+    ])
+  ).join("|");
+}
 
 // ============================================================================
 // Parsing Helpers
@@ -527,50 +576,54 @@ export async function getAllSubagentConfigs(
   workingDirectory: string = process.cwd(),
 ): Promise<Record<string, SubagentConfig>> {
   const localMemfs = usesLocalMemfsBuiltinPrompts();
-  // Return cached if same working directory
-  if (
-    cache.configs &&
-    cache.workingDir === workingDirectory &&
-    cache.localMemfs === localMemfs
-  ) {
-    return cache.configs;
+  const cacheKey = `${localMemfs ? "local" : "standard"}:${workingDirectory}`;
+  const fingerprint = await getSubagentConfigFingerprint(workingDirectory);
+  const cached = cache.configs.get(cacheKey);
+  if (cached?.fingerprint === fingerprint) {
+    return cached.promise;
   }
 
-  // Start with a copy of built-in subagents (don't mutate the cache)
-  const configs: Record<string, SubagentConfig> = {
-    ...getBuiltinSubagents(localMemfs),
-  };
+  const promise = (async () => {
+    // Start with a copy of built-in subagents (don't mutate the cache)
+    const configs: Record<string, SubagentConfig> = {
+      ...getBuiltinSubagents(localMemfs),
+    };
 
-  // Discover user-defined subagents from .letta/agents/
-  const { subagents, errors } = await discoverSubagents(
-    workingDirectory,
-    configs,
-  );
+    // Discover user-defined subagents from .letta/agents/
+    const { subagents, errors } = await discoverSubagents(
+      workingDirectory,
+      configs,
+    );
 
-  // Log any discovery errors
-  for (const error of errors) {
-    console.warn(`[subagent] Warning: ${error.path}: ${error.message}`);
+    // Log any discovery errors
+    for (const error of errors) {
+      console.warn(`[subagent] Warning: ${error.path}: ${error.message}`);
+    }
+
+    // User-defined subagents override built-ins with the same name
+    for (const subagent of subagents) {
+      configs[subagent.name] = subagent;
+    }
+
+    return configs;
+  })();
+  const entry = { fingerprint, promise };
+  cache.configs.set(cacheKey, entry);
+
+  try {
+    return await promise;
+  } catch (error) {
+    if (cache.configs.get(cacheKey) === entry) {
+      cache.configs.delete(cacheKey);
+    }
+    throw error;
   }
-
-  // User-defined subagents override built-ins with the same name
-  for (const subagent of subagents) {
-    configs[subagent.name] = subagent;
-  }
-
-  // Cache results
-  cache.configs = configs;
-  cache.workingDir = workingDirectory;
-  cache.localMemfs = localMemfs;
-
-  return configs;
 }
 
 /**
  * Clear the subagent config cache (useful when files change)
  */
 export function clearSubagentConfigCache(): void {
-  cache.configs = null;
-  cache.workingDir = null;
-  cache.localMemfs = null;
+  cache.configs.clear();
   localMemfsV2Builtins = null;
 }

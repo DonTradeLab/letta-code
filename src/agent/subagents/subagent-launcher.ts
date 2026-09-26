@@ -6,6 +6,7 @@
 // lower-level backend/runtime/shell helpers and shared subagent types, never
 // back on the subagent manager, so the graph stays acyclic.
 
+import { join } from "node:path";
 import { ACTING_USER_ID_ENV } from "@/agent/acting-user";
 import { type BackendMode, getLocalBackendStorageDir } from "@/backend";
 import { getLocalBackendMemoryFilesystemRoot } from "@/backend/local/paths";
@@ -162,6 +163,8 @@ export interface ComposeSubagentChildEnvOptions {
    * can reference `$TRANSCRIPT_PATH` (resolved via Bash) instead of
    * interpolating the absolute path. Unset → no TRANSCRIPT_PATH in child. */
   transcriptPath?: string | null;
+  /** Private harness scratch directory for background tool output. */
+  scratchpadDir?: string | null;
   /** Name reserved in the parent process, only for a newly created agent. */
   subagentName?: string;
 }
@@ -200,6 +203,7 @@ export function composeSubagentChildEnv(
     inheritedBaseUrl,
     actingUserId,
     transcriptPath,
+    scratchpadDir,
   } = options;
 
   const childEnv: NodeJS.ProcessEnv = {
@@ -237,6 +241,19 @@ export function composeSubagentChildEnv(
   // at all — their tools will surface resolution errors appropriately.
   if (launchProfile === "memory-subagent") {
     delete childEnv[LISTENER_CONNECTION_ENV];
+    if (scratchpadDir) {
+      childEnv.LETTA_SCRATCHPAD = scratchpadDir;
+      childEnv.TMPDIR = scratchpadDir;
+      childEnv.TMP = scratchpadDir;
+      childEnv.TEMP = scratchpadDir;
+      childEnv.TMPPREFIX = join(scratchpadDir, "zsh");
+    } else {
+      delete childEnv.LETTA_SCRATCHPAD;
+      delete childEnv.TMPDIR;
+      delete childEnv.TMP;
+      delete childEnv.TEMP;
+      delete childEnv.TMPPREFIX;
+    }
     const primaryRoot = memoryScope?.primaryRoot ?? inheritedPrimaryRoot;
     if (primaryRoot) {
       childEnv.MEMORY_DIR = primaryRoot;

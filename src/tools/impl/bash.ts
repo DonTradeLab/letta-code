@@ -304,6 +304,7 @@ interface BashResult {
     text: string;
   }>;
   status: "success" | "error";
+  failureKind?: "infrastructure";
 }
 
 export async function bash(args: BashArgs): Promise<BashResult> {
@@ -369,7 +370,21 @@ export async function bash(args: BashArgs): Promise<BashResult> {
   const bgEnv = secretEnv ? { ...getShellEnv(), ...secretEnv } : getShellEnv();
   const bgCommand = withStrictShellPrelude(command, bgEnv);
   const bashId = getNextBashId();
-  const outputFile = createBackgroundOutputFile(bashId);
+  let outputFile: string;
+  try {
+    outputFile = createBackgroundOutputFile(bashId);
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: error instanceof Error ? error.message : String(error),
+        },
+      ],
+      status: "error",
+      failureKind: "infrastructure",
+    };
+  }
   const launcher = getBackgroundLauncher(bgCommand, bgEnv, secretEnv);
   const [executable] = launcher;
   if (!executable) {

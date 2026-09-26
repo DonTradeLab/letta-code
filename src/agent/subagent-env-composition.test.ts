@@ -80,6 +80,53 @@ describe("composeSubagentChildEnv", () => {
     );
   });
 
+  test("memory subagents replace inherited scratchpads with a private harness path", () => {
+    const scratchpadDir = "/private/transcripts/.subagent-scratch/sub-1";
+    const env = composeSubagentChildEnv({
+      parentProcessEnv: {
+        HOME: "/home/user",
+        LETTA_SCRATCHPAD: "/tmp/shared-parent-scratch",
+        TMPDIR: "/tmp/parent",
+        TMP: "/tmp/parent",
+        TEMP: "/tmp/parent",
+        TMPPREFIX: "/private/var/folders/clara/T/zsh",
+      },
+      parentAgentId: PARENT_ID,
+      subagentType: "reflection",
+      launchProfile: "memory-subagent",
+      inheritedPrimaryRoot: PARENT_MEMORY_DIR,
+      scratchpadDir,
+    });
+
+    expect(env.LETTA_SCRATCHPAD).toBe(scratchpadDir);
+    expect(env.TMPDIR).toBe(scratchpadDir);
+    expect(env.TMP).toBe(scratchpadDir);
+    expect(env.TEMP).toBe(scratchpadDir);
+    expect(env.TMPPREFIX).toBe(join(scratchpadDir, "zsh"));
+    expect(env.LETTA_SCRATCHPAD).not.toContain(PARENT_MEMORY_DIR);
+  });
+
+  test("memory subagents never inherit a parent scratchpad without an assigned private path", () => {
+    const env = composeSubagentChildEnv({
+      parentProcessEnv: {
+        LETTA_SCRATCHPAD: "/tmp/shared-parent-scratch",
+        TMPDIR: "/tmp/parent",
+        TMP: "/tmp/parent",
+        TEMP: "/tmp/parent",
+        TMPPREFIX: "/private/var/folders/clara/T/zsh",
+      },
+      parentAgentId: PARENT_ID,
+      launchProfile: "memory-subagent",
+      inheritedPrimaryRoot: PARENT_MEMORY_DIR,
+    });
+
+    expect(env.LETTA_SCRATCHPAD).toBeUndefined();
+    expect(env.TMPDIR).toBeUndefined();
+    expect(env.TMP).toBeUndefined();
+    expect(env.TEMP).toBeUndefined();
+    expect(env.TMPPREFIX).toBeUndefined();
+  });
+
   test("non-reflection subagents do not restrict mods by default", () => {
     const env = composeSubagentChildEnv({
       parentProcessEnv: { HOME: "/home/user" },

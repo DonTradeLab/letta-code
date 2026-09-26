@@ -16,6 +16,7 @@ import {
   reflectionMemoryParentHasChanges,
 } from "@/agent/memory-worktree";
 import { getSubagents } from "@/agent/subagent-state";
+import type { SubagentToolExecutionSummary } from "@/agent/subagents";
 import { getBackend } from "@/backend";
 import { retrieveCloudReflectionConfig } from "@/backend/api/reflection";
 import {
@@ -28,6 +29,10 @@ import {
   handleMemorySubagentCompletion,
   type MemorySubagentSuccessMessageOverride,
 } from "@/cli/helpers/memory-subagent-completion";
+import {
+  classifyUnresolvedReflectionAnalysisFailure,
+  type ReflectionAnalysisFailure,
+} from "@/cli/helpers/reflection-analysis-result";
 import { finalizeAutoReflectionCompletion } from "@/cli/helpers/reflection-completion";
 import { classifyReflectionConfigurationError } from "@/cli/helpers/reflection-configuration-error";
 import {
@@ -414,6 +419,7 @@ function getReflectionCompletionMessage(
   integration: ReflectionMemoryWorktreeFinalizeResult,
   subagentError?: string,
   automaticReflectionPaused = false,
+  analysisFailure?: ReflectionAnalysisFailure,
 ): MemorySubagentSuccessMessageOverride | undefined {
   switch (integration.status) {
     case "merged":
@@ -429,6 +435,12 @@ function getReflectionCompletionMessage(
     case "failed": {
       if (integration.failurePhase === "integration") {
         return `${integration.summary} Will retry later.`;
+      }
+      if (analysisFailure === "infrastructure") {
+        return "Tried to reflect, but an infrastructure tool failure was not followed by a memory change; the reflection window remains pending for retry.";
+      }
+      if (analysisFailure === "all_tools_failed") {
+        return "Tried to reflect, but every attempted tool execution failed; the reflection window remains pending for retry.";
       }
       const configurationError =
         classifyReflectionConfigurationError(subagentError);
@@ -566,6 +578,7 @@ export async function finalizeReflectionMemoryWorktreeLaunch(params: {
   subagentAgentId?: string;
   subagentType?: "reflection";
   knownNoChanges?: boolean;
+  toolExecution?: SubagentToolExecutionSummary;
   model?: string | null;
   mergePolicy?: "auto" | "explicit";
   mergeInstructions?: string;
@@ -587,23 +600,37 @@ export async function finalizeReflectionMemoryWorktreeLaunch(params: {
   shouldNotify: boolean;
   integrationConversationId?: string;
 }> {
+  const worktreeState = params.knownNoChanges
+    ? { commitCount: 0, dirty: false }
+    : await inspectReflectionMemoryWorktree(params.worktree);
+  const analysisFailure = params.subagentSuccess
+    ? classifyUnresolvedReflectionAnalysisFailure(
+        params.toolExecution,
+        worktreeState,
+      )
+    : undefined;
+  const subagentSuccess = params.subagentSuccess && !analysisFailure;
+  const subagentError =
+    analysisFailure === "infrastructure"
+      ? "Reflection analysis had an unresolved infrastructure failure and produced no memory change."
+      : analysisFailure === "all_tools_failed"
+        ? "Reflection analysis did not complete because every attempted tool execution failed."
+        : params.subagentError;
   const configurationFailure =
-    !params.subagentSuccess &&
+    !subagentSuccess &&
+    !analysisFailure &&
     recordReflectionConfigurationFailure({
       agentId: params.agentId,
       model: params.model ?? undefined,
-      error: params.subagentError,
+      error: subagentError,
     });
-  if (params.subagentSuccess) {
+  if (subagentSuccess) {
     clearAutomaticReflectionSuppression(params.agentId);
   }
 
   let integrationRun: ReflectionIntegrationOutcome | undefined;
-  if (params.subagentSuccess && params.mergePolicy === "explicit") {
-    const state = params.knownNoChanges
-      ? { commitCount: 0, dirty: false }
-      : await inspectReflectionMemoryWorktree(params.worktree);
-    if (state.commitCount > 0 || state.dirty) {
+  if (subagentSuccess && params.mergePolicy === "explicit") {
+    if (worktreeState.commitCount > 0 || worktreeState.dirty) {
       integrationRun = await (
         params.runExplicitIntegration ?? runExplicitReflectionIntegration
       )({
@@ -617,7 +644,7 @@ export async function finalizeReflectionMemoryWorktreeLaunch(params: {
   }
 
   const integration = await finalizeReflectionMemoryWorktree(params.worktree, {
-    shouldMerge: params.subagentSuccess,
+    shouldMerge: subagentSuccess,
     knownNoChanges: params.knownNoChanges,
     requireAlreadyMerged:
       params.mergePolicy === "explicit" && integrationRun !== undefined,
@@ -626,8 +653,7 @@ export async function finalizeReflectionMemoryWorktreeLaunch(params: {
       : undefined,
   });
   const completionSuccess =
-    params.subagentSuccess &&
-    reflectionIntegrationConsumesTranscript(integration);
+    subagentSuccess && reflectionIntegrationConsumesTranscript(integration);
   const shouldNotify = recordReflectionIntegrationRetry(
     params.agentId,
     integration,
@@ -656,13 +682,14 @@ export async function finalizeReflectionMemoryWorktreeLaunch(params: {
       conversationId: params.conversationId,
       subagentType: params.subagentType ?? "reflection",
       success: completionSuccess,
-      error: completionSuccess ? undefined : params.subagentError,
+      error: completionSuccess ? undefined : subagentError,
       subagentAgentId: params.subagentAgentId,
       skipRecompile: !reflectionIntegrationShouldRecompile(integration),
       successMessageOverride: getReflectionCompletionMessage(
         integration,
-        params.subagentError,
+        subagentError,
         configurationFailure,
+        analysisFailure,
       ),
     },
     {
@@ -847,6 +874,7 @@ export async function launchReflectionSubagent(
         model: reflectionModel,
         stepCount,
         durationMs,
+        toolExecution,
       }) => {
         try {
           emitReflectionRunEnd({
@@ -874,6 +902,7 @@ export async function launchReflectionSubagent(
             worktree,
             subagentSuccess: success,
             subagentError: error,
+            toolExecution,
             agentId,
             conversationId: completionConversationId,
             subagentAgentId: reflectionAgentId ?? undefined,

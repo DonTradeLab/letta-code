@@ -29,7 +29,9 @@
 // is parent-process only; subagents always evaluate the guard unless they are
 // already kernel-confined as whole processes.
 
+import { lstatSync, readlinkSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { getRuntimeContext } from "@/runtime-context";
 import { getRuntimeExecutionEnv } from "@/runtime-execution-settings";
 import { SANDBOX_ENV_VAR } from "@/sandbox/policy";
@@ -129,12 +131,39 @@ function getAgentsTreeRoot(homeDir: string): string {
 }
 
 /**
+ * Global subagent definitions are documented direct children of
+ * `~/.letta/agents`. They are harness configuration, not per-agent memory.
+ * Keep the exception exact: nested paths and non-Markdown children still pass
+ * through the cross-agent classifier.
+ */
+function isGlobalSubagentConfigPath(path: string, agentsRoot: string): boolean {
+  if (!path.startsWith(`${agentsRoot}/`)) return false;
+  const relative = path.slice(agentsRoot.length + 1);
+  return !relative.includes("/") && relative.endsWith(".md");
+}
+
+/**
  * Normalize a path for structural comparison: forward slashes, no
  * trailing slash, preserving a bare `/` as root.
  */
 function normalizePathForCompare(path: string): string {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
   return normalized.length === 0 ? "/" : normalized;
+}
+
+/**
+ * Resolve a direct symlink even when its target leaf does not exist yet.
+ * `realpath`/`existsSync` cannot follow a dangling link, but a write through one
+ * can create the target file, so the guard must classify the link destination.
+ */
+function resolveDirectSymlinkTarget(path: string): string {
+  try {
+    if (!lstatSync(path).isSymbolicLink()) return path;
+    const target = readlinkSync(path);
+    return isAbsolute(target) ? target : resolve(dirname(path), target);
+  } catch {
+    return path;
+  }
 }
 
 /**
@@ -333,11 +362,13 @@ export function extractTargetAgentPaths(
     // Everything unions via the shared `agentIds` set — extra passes only add
     // denials, never remove them.
     const lexical = normalizePathForCompare(resolvedPath);
-    const real = canonicalizeRoot(resolvedPath);
-    for (const root of treeRoots) {
+    const real = canonicalizeRoot(resolveDirectSymlinkTarget(resolvedPath));
+    for (const [index, root] of treeRoots.entries()) {
+      if (index === 0 && isGlobalSubagentConfigPath(lexical, root)) continue;
       applyClassification(classifyPathUnderRoot(lexical, root));
     }
-    for (const root of realTreeRoots) {
+    for (const [index, root] of realTreeRoots.entries()) {
+      if (index === 0 && isGlobalSubagentConfigPath(real, root)) continue;
       applyClassification(classifyPathUnderRoot(real, root));
     }
   };

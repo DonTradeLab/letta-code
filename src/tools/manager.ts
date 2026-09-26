@@ -360,6 +360,7 @@ export type ToolExecutionResult = {
   status: "success" | "error";
   stdout?: string[];
   stderr?: string[];
+  failureKind?: "infrastructure";
 };
 
 type ToolRegistry = Map<string, ToolDefinition>;
@@ -2588,18 +2589,14 @@ async function executeToolInner(
           }
         }
       }
-
-      // Extract stdout/stderr if present (for bash tools)
       const recordResult = isRecord(result) ? result : undefined;
       const stdoutValue = recordResult?.stdout;
       const stderrValue = recordResult?.stderr;
       const stdout = isStringArray(stdoutValue) ? stdoutValue : undefined;
       const stderr = isStringArray(stderrValue) ? stderrValue : undefined;
-
-      // Check if tool returned a status (e.g., Bash returns status: "error" on abort)
+      const infrastructureFailure =
+        recordResult?.failureKind === "infrastructure";
       const toolStatus = recordResult?.status === "error" ? "error" : "success";
-
-      // Flatten the response to plain text
       let flattenedResponse = flattenToolResponse(result);
 
       // Scrub secret values + ANSI escape sequences from tool output so they
@@ -2682,6 +2679,9 @@ async function executeToolInner(
         status: toolStatus,
         ...(stdout && { stdout }),
         ...(stderr && { stderr }),
+        ...(infrastructureFailure && {
+          failureKind: "infrastructure" as const,
+        }),
       };
     } catch (error) {
       const duration = Date.now() - startTime;

@@ -112,10 +112,10 @@ describe("local system prompt compilation", () => {
       expect(compiled.content).toContain("- AGENT_ID: agent-local-test");
       expect(compiled.content).toContain("- CONVERSATION_ID: local-conv-test");
       expect(compiled.content).toContain(
-        "- System prompt last recompiled: 2026-05-04 12:00:00 AM UTC+0000",
+        "- System prompt last recompiled: 2026-05-04 UTC",
       );
       expect(compiled.content).toContain(
-        "- 7 previous messages between you and the user are stored in recall memory",
+        "- fewer than 50 previous messages between you and the user are stored in recall memory",
       );
     } finally {
       await rm(memoryDir, { recursive: true, force: true });
@@ -165,6 +165,36 @@ describe("local system prompt compilation", () => {
 
     expect(compiled.content).toStartWith("plain base prompt");
     expect(compiled.content).toContain("<memory_metadata>");
+  });
+
+  test("uses stable approximate recall-count buckets in memory metadata", () => {
+    const cases: Array<[number, string]> = [
+      [0, "fewer than 50"],
+      [49, "fewer than 50"],
+      [50, "over 50"],
+      [199, "over 50"],
+      [200, "over 200"],
+      [999, "over 200"],
+      [1_000, "over 1,000"],
+      [4_999, "over 1,000"],
+      [5_000, "over 5,000"],
+    ];
+
+    for (const [previousMessageCount, expected] of cases) {
+      const compiled = compileLocalSystemPrompt({
+        agent: agent("plain base prompt"),
+        conversationId: "local-conv-test",
+        memoryDir: join(tmpdir(), "missing-local-memory-dir"),
+        now: new Date("2026-05-04T23:59:59.000Z"),
+        previousMessageCount,
+      });
+      expect(compiled.content).toContain(
+        `- ${expected} previous messages between you and the user are stored in recall memory`,
+      );
+      expect(compiled.content).toContain(
+        "- System prompt last recompiled: 2026-05-04 UTC",
+      );
+    }
   });
 
   test("can compile without projecting local MemFS", async () => {
