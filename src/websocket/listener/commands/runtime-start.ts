@@ -24,8 +24,8 @@ import { getBootWorkingDirectory } from "@/websocket/listener/cwd";
 import { switchConversationWorkingDirectory } from "@/websocket/listener/cwd-change";
 import { registerRuntimeExternalTools } from "@/websocket/listener/external-tools";
 import {
-  getOrCreateConversationPermissionModeStateRef,
-  persistPermissionModeMapForRuntime,
+  reconcilePermissionModeFromDisk,
+  setConversationPermissionMode,
 } from "@/websocket/listener/permission-mode";
 import { isRuntimeStartCommand } from "@/websocket/listener/runtime-start-validation";
 import { assertRuntimeWorkspaceSandboxChangeAllowed } from "@/websocket/listener/runtime-workspace-sandbox";
@@ -398,13 +398,18 @@ async function applyRuntimeStartState(
     if (!mode) {
       throw new Error(`Unsupported permission mode: ${parsed.mode}`);
     }
-    const state = getOrCreateConversationPermissionModeStateRef(
+    await setConversationPermissionMode(
+      context.runtime,
+      scope.agent_id,
+      scope.conversation_id,
+      mode,
+    );
+  } else {
+    await reconcilePermissionModeFromDisk(
       context.runtime,
       scope.agent_id,
       scope.conversation_id,
     );
-    state.mode = mode;
-    persistPermissionModeMapForRuntime(context.runtime);
   }
 
   if (parsed.cwd !== undefined || workspaceSandbox) {

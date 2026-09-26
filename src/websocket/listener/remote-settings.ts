@@ -37,6 +37,8 @@ export interface RemoteSettings {
   cwdMap?: Record<string, string>;
   cwdRepairJournalIds?: string[];
   permissionModeMap?: Record<string, PersistedPermissionModeState>;
+  /** Includes tombstones: an absent override can still be a confirmed choice. */
+  permissionModeRevMap?: Record<string, number>;
 }
 
 interface CwdRepairJournal {
@@ -582,6 +584,85 @@ async function persistPendingRemoteSettings(): Promise<void> {
       }
       await releaseRemoteSettingsLock(lock);
     }
+  }
+}
+
+/** One atomic-file snapshot; unreadable/corrupt settings are not an empty map. */
+export function readPermissionModeSettingsSnapshot(): RemoteSettings {
+  const current = readCurrentRemoteSettingsSync(getRemoteSettingsPath());
+  if (
+    !current ||
+    !current.settings ||
+    typeof current.settings !== "object" ||
+    Array.isArray(current.settings)
+  ) {
+    throw new Error("Unable to read remote settings for permission snapshot");
+  }
+  return current.settings;
+}
+
+/**
+ * Complete a scoped transaction using the same lock, queued patches and atomic
+ * publication as ordinary settings writes. The transaction itself is NOT queued:
+ * a rejected operation must not become a delayed successful choice after its
+ * caller has reported failure. Once the lock is acquired, read/apply/rename and
+ * RAM confirmation are synchronous, so no turn callback can split the snapshot.
+ * `confirm` is internal bookkeeping only and must not throw or perform I/O.
+ */
+export async function transactRemoteSettings(
+  update: (current: RemoteSettings) => {
+    settings: RemoteSettings;
+    confirm: () => void;
+  },
+): Promise<void> {
+  const settingsPath = getRemoteSettingsPath();
+  const deadline = Date.now() + REMOTE_SETTINGS_FLUSH_TIMEOUT_MS;
+  while (true) {
+    const lock = tryAcquireRemoteSettingsLockSync(
+      getRemoteSettingsLockPath(settingsPath),
+    );
+    if (lock) {
+      const tempPath = `${settingsPath}.${process.pid}.${randomUUID()}.transaction.tmp`;
+      try {
+        const current = readCurrentRemoteSettingsSync(settingsPath);
+        if (
+          !current ||
+          !current.settings ||
+          typeof current.settings !== "object" ||
+          Array.isArray(current.settings)
+        ) {
+          throw new Error(
+            "Unable to read remote settings for permission transaction",
+          );
+        }
+        const generation = _settingsGeneration;
+        const { settings, confirm } = update(
+          applyPendingRemoteSettingsPatches(current.settings, generation),
+        );
+        writeFileSync(tempPath, JSON.stringify(settings, null, 2));
+        renameSync(tempPath, settingsPath);
+        settleRemoteSettingsGeneration(generation);
+        _cache = settings;
+        confirm();
+        cleanupCwdRepairJournals(current.repairJournals);
+        return;
+      } finally {
+        try {
+          rmSync(tempPath, { force: true });
+        } catch {
+          /* best effort */
+        }
+        releaseRemoteSettingsLockSync(lock);
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        "Timed out publishing permission mode: remote settings lock unavailable",
+      );
+    }
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, REMOTE_SETTINGS_FLUSH_RETRY_MIN_MS),
+    );
   }
 }
 

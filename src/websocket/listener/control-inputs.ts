@@ -25,10 +25,7 @@ import {
   setConversationWorkingDirectory,
 } from "./cwd";
 import { stashRecoveredApprovalInterrupts } from "./interrupts";
-import {
-  getOrCreateConversationPermissionModeStateRef,
-  persistPermissionModeMapForRuntime,
-} from "./permission-mode";
+import { setConversationPermissionMode } from "./permission-mode";
 import {
   emitDeviceStatusUpdate,
   emitInterruptedStatusDelta,
@@ -82,7 +79,7 @@ function isMissingWorkingDirectoryError(error: unknown): boolean {
  * each agent/conversation is isolated and the state outlives the ephemeral
  * ConversationRuntime (which gets evicted between turns).
  */
-export function handleModeChange(
+export async function handleModeChange(
   msg: ModeChangePayload,
   socket: WebSocket,
   runtime: ListenerRuntime,
@@ -90,15 +87,10 @@ export function handleModeChange(
     agent_id?: string | null;
     conversation_id?: string | null;
   },
-): void {
+): Promise<void> {
   try {
     const agentId = scope?.agent_id ?? null;
     const conversationId = scope?.conversation_id ?? "default";
-    const current = getOrCreateConversationPermissionModeStateRef(
-      runtime,
-      agentId,
-      conversationId,
-    );
 
     // Migrate legacy mode values from older clients
     const incomingMode = migratePermissionMode(msg.mode);
@@ -113,9 +105,12 @@ export function handleModeChange(
       return;
     }
 
-    current.mode = incomingMode;
-
-    persistPermissionModeMapForRuntime(runtime);
+    await setConversationPermissionMode(
+      runtime,
+      agentId,
+      conversationId,
+      incomingMode,
+    );
 
     emitRuntimeStateUpdates(runtime, scope);
 
@@ -358,7 +353,7 @@ export async function handleChangeDeviceStateInput(
 
   try {
     if (params.command.payload.mode) {
-      resolvedDeps.handleModeChange(
+      await resolvedDeps.handleModeChange(
         { mode: params.command.payload.mode },
         params.socket,
         listener,

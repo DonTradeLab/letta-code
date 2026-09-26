@@ -13,12 +13,18 @@ import {
   migratePermissionMode,
   type PermissionMode,
 } from "@/permissions/mode";
-import { loadRemoteSettings, saveRemoteSettings } from "./remote-settings";
+import {
+  type RemoteSettings,
+  readPermissionModeSettingsSnapshot,
+  transactRemoteSettings,
+} from "./remote-settings";
 import { normalizeConversationId, normalizeCwdAgentId } from "./scope";
 import type { ListenerRuntime } from "./types";
 
 export type ConversationPermissionModeState = {
   mode: PermissionMode;
+  /** Last confirmed revision, never a prediction of an in-flight write. */
+  knownRev?: number;
 };
 
 export function getPermissionModeScopeKey(
@@ -139,7 +145,9 @@ export function pruneConversationPermissionModeStateIfDefault(
   if (!state) {
     return false;
   }
-  if (!isPrunableDefaultState(state)) {
+  // Keep confirmed tombstones and their live references. Only virgin defaults
+  // may be removed; deleting a confirmed revision would turn stale RAM into rev0.
+  if (state.knownRev !== undefined || !isPrunableDefaultState(state)) {
     return false;
   }
   runtime.permissionModeByConversation.delete(scopeKey);
@@ -154,54 +162,189 @@ export function loadPersistedPermissionModeMap(): Map<
   string,
   ConversationPermissionModeState
 > {
-  try {
-    const settings = loadRemoteSettings();
-    const map = new Map<string, ConversationPermissionModeState>();
-    if (!settings.permissionModeMap) {
-      return map;
+  const settings = readPermissionModeSettingsSnapshot();
+  validatePermissionTables(settings);
+  const map = new Map<string, ConversationPermissionModeState>();
+  for (const key of new Set([
+    ...Object.keys(settings.permissionModeMap ?? {}),
+    ...Object.keys(settings.permissionModeRevMap ?? {}),
+  ])) {
+    map.set(key, readPermissionSnapshot(settings, key));
+  }
+  return map;
+}
+
+function validatePermissionTables(settings: RemoteSettings): void {
+  for (const table of [
+    settings.permissionModeMap,
+    settings.permissionModeRevMap,
+  ]) {
+    if (
+      table !== undefined &&
+      (!table || typeof table !== "object" || Array.isArray(table))
+    ) {
+      throw new Error("Invalid persisted permission table");
     }
-    for (const [key, persisted] of Object.entries(settings.permissionModeMap)) {
-      // Migrate legacy mode values ("default" → "standard", "bypassPermissions" → "unrestricted").
-      const rawMode =
-        migratePermissionMode(persisted.mode) ?? DEFAULT_PERMISSION_MODE;
-      map.set(key, {
-        mode: rawMode,
-      });
-    }
-    return map;
-  } catch {
-    return new Map();
   }
 }
 
+function readPermissionSnapshot(
+  settings: RemoteSettings,
+  key: string,
+): ConversationPermissionModeState & { knownRev: number } {
+  validatePermissionTables(settings);
+  const persistedRev = settings.permissionModeRevMap?.[key];
+  const knownRev = persistedRev === undefined ? 0 : persistedRev;
+  if (!Number.isSafeInteger(knownRev) || knownRev < 0) {
+    throw new Error("Invalid persisted permission revision");
+  }
+  const persisted = settings.permissionModeMap?.[key];
+  const mode =
+    persisted === undefined
+      ? knownRev > 0
+        ? DEFAULT_PERMISSION_MODE
+        : globalPermissionMode.getMode()
+      : migratePermissionMode(persisted?.mode);
+  if (!mode) throw new Error("Invalid persisted permission mode");
+  return { mode, knownRev };
+}
+
 /**
- * Persist permission mode map to remote-settings.json.
+ * Confirm one scoped choice using the native settings transaction. Explicit
+ * choices change RAM only after rename; cleanup is CAS against its captured
+ * revision. All accepted changes (including legitimate turn mutations) advance
+ * the revision. Reads retain tombstones and update the canonical object in place.
+ * No pending permission intent survives a rejected transaction.
  */
-export function persistPermissionModeMapForRuntime(
+async function transactPermissionMode(
   runtime: ListenerRuntime,
-): void {
-  persistPermissionModeMap(runtime.permissionModeByConversation);
+  agentId: string | null | undefined,
+  conversationId: string | null | undefined,
+  intent: "explicit" | "reconcile" | "read",
+  mode?: PermissionMode,
+): Promise<void> {
+  const key = getPermissionModeScopeKey(agentId, conversationId);
+  const state = getOrCreateConversationPermissionModeStateRef(
+    runtime,
+    agentId,
+    conversationId,
+  );
+  const capturedMode = state.mode;
+  const capturedRev = state.knownRev;
+  await transactRemoteSettings((settings) => {
+    // Preserve the existing one-time agent:__unknown__ default migration, but
+    // consume it atomically so another listener cannot resurrect the old key.
+    const legacyKey = getPermissionModeScopeKey(null, "default");
+    if (
+      normalizeConversationId(conversationId) === "default" &&
+      key !== legacyKey &&
+      settings.permissionModeMap?.[key] === undefined &&
+      settings.permissionModeRevMap?.[key] === undefined &&
+      settings.permissionModeMap?.[legacyKey] !== undefined
+    ) {
+      const legacy = readPermissionSnapshot(settings, legacyKey);
+      if (legacy.knownRev === Number.MAX_SAFE_INTEGER)
+        throw new Error("Permission revision exhausted");
+      const permissionModeMap = {
+        ...settings.permissionModeMap,
+        [key]: { mode: legacy.mode },
+      };
+      delete permissionModeMap[legacyKey];
+      settings = {
+        ...settings,
+        permissionModeMap,
+        permissionModeRevMap: {
+          ...settings.permissionModeRevMap,
+          [key]: legacy.knownRev,
+          [legacyKey]: legacy.knownRev + 1,
+        },
+      };
+    }
+    const current = readPermissionSnapshot(settings, key);
+    // A control or another turn already changed this live object while we
+    // waited for the lock. An old cleanup/read must not overwrite that update.
+    if (
+      intent !== "explicit" &&
+      (state.mode !== capturedMode || state.knownRev !== capturedRev)
+    ) {
+      return { settings, confirm: () => {} };
+    }
+    // An omitted mode is not permission to discard a legitimate local turn
+    // mutation when the confirmed disk revision has not changed.
+    if (
+      intent === "read" &&
+      capturedRev !== undefined &&
+      capturedRev === current.knownRev
+    ) {
+      return { settings, confirm: () => {} };
+    }
+    const shouldWrite =
+      intent === "explicit" ||
+      (intent === "reconcile" &&
+        (capturedRev ?? 0) === current.knownRev &&
+        capturedMode !== current.mode);
+    let confirmed = current;
+    let next = settings;
+    if (shouldWrite) {
+      if (current.knownRev === Number.MAX_SAFE_INTEGER)
+        throw new Error("Permission revision exhausted");
+      confirmed = {
+        mode: intent === "explicit" ? (mode as PermissionMode) : capturedMode,
+        knownRev: current.knownRev + 1,
+      };
+      const permissionModeMap = { ...settings.permissionModeMap };
+      if (confirmed.mode === DEFAULT_PERMISSION_MODE)
+        delete permissionModeMap[key];
+      else permissionModeMap[key] = { mode: confirmed.mode };
+      next = {
+        ...settings,
+        permissionModeMap,
+        permissionModeRevMap: {
+          ...settings.permissionModeRevMap,
+          [key]: confirmed.knownRev,
+        },
+      };
+    }
+    return {
+      settings: next,
+      confirm: () => {
+        state.mode = confirmed.mode;
+        state.knownRev = confirmed.knownRev;
+      },
+    };
+  });
 }
 
-/**
- * Serialize the permission mode map and persist to remote-settings.json.
- * Skips entries that match the current global default mode (lean map).
- */
-function persistPermissionModeMap(
-  map: Map<string, ConversationPermissionModeState>,
-): void {
-  const permissionModeMap: Record<string, { mode: PermissionMode }> = {};
+/** A user/control choice; completion means publication succeeded. */
+export async function setConversationPermissionMode(
+  runtime: ListenerRuntime,
+  agentId: string | null | undefined,
+  conversationId: string | null | undefined,
+  mode: PermissionMode,
+): Promise<void> {
+  await transactPermissionMode(
+    runtime,
+    agentId,
+    conversationId,
+    "explicit",
+    mode,
+  );
+}
 
-  for (const [key, state] of map) {
-    // Skip entries that are just the default starting mode with no context — lean map.
-    if (state.mode === DEFAULT_PERMISSION_MODE) {
-      continue;
-    }
+/** Finalization of a turn is not a new explicit choice. */
+export async function persistPermissionModeMapForRuntime(
+  runtime: ListenerRuntime,
+  agentId: string | null | undefined,
+  conversationId: string | null | undefined,
+): Promise<void> {
+  await transactPermissionMode(runtime, agentId, conversationId, "reconcile");
+}
 
-    permissionModeMap[key] = {
-      mode: state.mode,
-    };
-  }
-
-  saveRemoteSettings({ permissionModeMap });
+/** Resume must observe absence + revision as well as non-default choices. */
+export async function reconcilePermissionModeFromDisk(
+  runtime: ListenerRuntime,
+  agentId: string | null | undefined,
+  conversationId: string | null | undefined,
+): Promise<void> {
+  await transactPermissionMode(runtime, agentId, conversationId, "read");
 }

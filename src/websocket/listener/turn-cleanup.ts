@@ -31,12 +31,22 @@ export async function runListenerTurnCleanup(params: {
 
   if (!finalized) return;
 
-  pruneConversationPermissionModeStateIfDefault(
-    runtime.listener,
-    normalizedAgentId,
-    conversationId,
-  );
-  persistPermissionModeMapForRuntime(runtime.listener);
+  try {
+    await persistPermissionModeMapForRuntime(
+      runtime.listener,
+      normalizedAgentId,
+      conversationId,
+    );
+    pruneConversationPermissionModeStateIfDefault(
+      runtime.listener,
+      normalizedAgentId,
+      conversationId,
+    );
+  } catch {
+    // Do not skip memory sync / turn teardown, and do not queue an obsolete
+    // permission snapshot for a later retry. Explicit commands report errors.
+    console.warn("[Listen] Permission mode cleanup could not be persisted");
+  }
   emitDeviceStatusIfOpen(runtime, {
     agent_id: agentId ?? null,
     conversation_id: conversationId,
