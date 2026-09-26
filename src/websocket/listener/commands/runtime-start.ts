@@ -26,6 +26,7 @@ import { registerRuntimeExternalTools } from "@/websocket/listener/external-tool
 import {
   getOrCreateConversationPermissionModeStateRef,
   persistPermissionModeMapForRuntime,
+  reconcilePermissionModeFromDisk,
 } from "@/websocket/listener/permission-mode";
 import { isRuntimeStartCommand } from "@/websocket/listener/runtime-start-validation";
 import { assertRuntimeWorkspaceSandboxChangeAllowed } from "@/websocket/listener/runtime-workspace-sandbox";
@@ -404,7 +405,29 @@ async function applyRuntimeStartState(
       scope.conversation_id,
     );
     state.mode = mode;
-    persistPermissionModeMapForRuntime(context.runtime);
+    // "explicit": runtime_start with an explicit `mode` is a real choice
+    // (new session, or resume with a mode field) and must always win on
+    // disk — see persistPermissionModeMapForRuntime.
+    persistPermissionModeMapForRuntime(
+      context.runtime,
+      scope.agent_id,
+      scope.conversation_id,
+      "explicit",
+    );
+  } else {
+    // No explicit mode on this runtime_start (a resume/attach that omits
+    // it). This process's RAM for this scope was only loaded once at
+    // listener startup and never invalidated since — if another process
+    // made a newer explicit choice for this exact scope in the meantime,
+    // this process would otherwise keep enforcing the superseded mode
+    // indefinitely, even after the file on disk is already correct. Adopt
+    // disk's value into RAM when it is strictly newer; never writes back,
+    // so it cannot race a concurrent explicit choice (Blocker 3).
+    reconcilePermissionModeFromDisk(
+      context.runtime,
+      scope.agent_id,
+      scope.conversation_id,
+    );
   }
 
   if (parsed.cwd !== undefined || workspaceSandbox) {

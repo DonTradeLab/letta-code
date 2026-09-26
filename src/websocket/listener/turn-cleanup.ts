@@ -36,7 +36,16 @@ export async function runListenerTurnCleanup(params: {
     normalizedAgentId,
     conversationId,
   );
-  persistPermissionModeMapForRuntime(runtime.listener);
+  // "reconcile": this is end-of-turn housekeeping, not a new choice. It must
+  // not be able to resurrect a mode that an explicit choice elsewhere
+  // (another process, or change_device_state) already superseded — see
+  // persistPermissionModeMapForRuntime's origin parameter.
+  persistPermissionModeMapForRuntime(
+    runtime.listener,
+    normalizedAgentId,
+    conversationId,
+    "reconcile",
+  );
   emitDeviceStatusIfOpen(runtime, {
     agent_id: agentId ?? null,
     conversation_id: conversationId,

@@ -115,7 +115,14 @@ export function handleModeChange(
 
     current.mode = incomingMode;
 
-    persistPermissionModeMapForRuntime(runtime);
+    // "explicit": this is a real user/control choice and must always win on
+    // disk, even against a stale cache — see persistPermissionModeMapForRuntime.
+    persistPermissionModeMapForRuntime(
+      runtime,
+      agentId,
+      conversationId,
+      "explicit",
+    );
 
     emitRuntimeStateUpdates(runtime, scope);
 

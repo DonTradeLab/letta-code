@@ -19,7 +19,12 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { isConfirmedUnusableDirectory } from "@/helpers/usable-directory";
-import type { PermissionMode } from "@/permissions/mode";
+import {
+  applyPermissionModeMapPatch,
+  type PermissionModeMapPatch,
+  type PermissionModeMutation,
+  type PersistedPermissionModeState,
+} from "./permission-mode-precedence";
 import {
   flushAbandonedRemoteSettingsLock,
   releaseRemoteSettingsLock,
@@ -28,15 +33,32 @@ import {
   tryAcquireRemoteSettingsLockSync,
 } from "./remote-settings-lock";
 
-/** Persisted permission mode state for a single conversation. */
-export interface PersistedPermissionModeState {
-  mode: PermissionMode;
-}
+export type { PersistedPermissionModeState };
 
 export interface RemoteSettings {
   cwdMap?: Record<string, string>;
   cwdRepairJournalIds?: string[];
   permissionModeMap?: Record<string, PersistedPermissionModeState>;
+  /**
+   * Per-scope monotonic revision counter for `permissionModeMap`, tracked
+   * separately from the map itself so it survives the key being *absent*
+   * (the default mode, "unrestricted", is never written to permissionModeMap
+   * — see the lean-map comment in permission-mode.ts). If the revision lived
+   * only inside the map entry, deleting a key back to default would also
+   * erase its revision history, and a later stale "reconcile" write with
+   * `knownRev: 0` could not be told apart from "this scope was never
+   * written." A scope missing from this map is revision 0.
+   *
+   * Orders writes for the *same* conversation scope key across processes:
+   * - An explicit choice (handleModeChange, runtime_start with `mode`)
+   *   always wins by bumping this counter to one past whatever is on disk
+   *   *at apply time*, so it can never be starved by a stale local cache.
+   * - An end-of-turn reconcile (turn-cleanup) only applies if the revision
+   *   it remembers for this scope still matches disk; otherwise a newer
+   *   explicit choice landed elsewhere and the reconcile is dropped instead
+   *   of clobbering it.
+   */
+  permissionModeRevMap?: Record<string, number>;
 }
 
 interface CwdRepairJournal {
@@ -50,6 +72,11 @@ interface CurrentRemoteSettings {
   settings: RemoteSettings;
 }
 
+/** Narrow view of readCurrentRemoteSettingsSync's result for scope-only reads. */
+export interface CurrentRemoteSettingsSync {
+  settings: RemoteSettings;
+}
+
 type SettingsMapMutation<T> =
   | { kind: "set"; value: T }
   | { expected: T; kind: "delete" };
@@ -59,7 +86,7 @@ type SettingsMapPatch<T> = Record<string, SettingsMapMutation<T>>;
 interface RemoteSettingsPatch {
   cwdMap?: SettingsMapPatch<string>;
   initializeCwdMap?: Record<string, string>;
-  permissionModeMap?: SettingsMapPatch<PersistedPermissionModeState>;
+  permissionModeMap?: PermissionModeMapPatch;
 }
 
 interface PendingRemoteSettingsPatch {
@@ -386,11 +413,39 @@ function buildRemoteSettingsPatch(
     );
   }
   if (updates.permissionModeMap !== undefined) {
-    patch.permissionModeMap = createSettingsMapPatch(
-      previous.permissionModeMap,
-      updates.permissionModeMap,
-      (left, right) => left.mode === right.mode,
-    );
+    // No production caller reaches this branch: every real writer
+    // (handleModeChange, runtime_start, turn-cleanup) goes through
+    // saveRemoteSettingsPermissionModeAssignment, which carries explicit
+    // "explicit"/"reconcile" provenance that a plain set/delete patch cannot
+    // express (see PermissionModeMutation). This path only exists so the
+    // generic saveRemoteSettings/saveRemoteSettingsSync API keeps its
+    // pre-existing, simpler contract for direct callers/tests that pass a
+    // permissionModeMap snapshot without needing that precedence — treated
+    // as an unconditional "explicit" set/delete per key, bumping revisions
+    // the same way saveRemoteSettingsPermissionModeAssignment does.
+    const permissionModeMap: PermissionModeMapPatch = {};
+    const previousMap = previous.permissionModeMap ?? {};
+    const nextMap = updates.permissionModeMap;
+    const keys = new Set([
+      ...Object.keys(previousMap),
+      ...Object.keys(nextMap),
+    ]);
+    for (const key of keys) {
+      if (!Object.hasOwn(nextMap, key)) {
+        permissionModeMap[key] = { intent: "explicit-delete" };
+      } else if (
+        !Object.hasOwn(previousMap, key) ||
+        previousMap[key]?.mode !== nextMap[key]?.mode
+      ) {
+        permissionModeMap[key] = {
+          intent: "explicit-set",
+          state: nextMap[key] as PersistedPermissionModeState,
+        };
+      }
+    }
+    if (Object.keys(permissionModeMap).length > 0) {
+      patch.permissionModeMap = permissionModeMap;
+    }
   }
   return patch;
 }
@@ -475,11 +530,12 @@ function applyPendingRemoteSettingsPatches(
       }
     }
     if (pending.patch.permissionModeMap) {
-      result.permissionModeMap = applySettingsMapPatch(
-        result.permissionModeMap,
+      const tables = applyPermissionModeMapPatch(
+        { map: result.permissionModeMap, revMap: result.permissionModeRevMap },
         pending.patch.permissionModeMap,
-        (left, right) => left.mode === right.mode,
       );
+      result.permissionModeMap = tables.map;
+      result.permissionModeRevMap = tables.revMap;
     }
   }
   return result;
@@ -680,6 +736,51 @@ export function saveRemoteSettingsCwdAssignment(
   });
   scheduleRemoteSettingsWrite();
 }
+
+/**
+ * Accessors below expose the minimum surface remote-settings-permission-mode.ts
+ * needs from this module's private cache/queue state, so permission-mode
+ * writes can carry their own explicit/reconcile precedence (see
+ * PermissionModeMutation) without duplicating the generic patch queue, lock,
+ * and disk I/O machinery that lives here.
+ */
+
+/** Current in-process settings cache, or null if never loaded this process. */
+export function getRemoteSettingsCache(): RemoteSettings | null {
+  return _cache;
+}
+
+/** Overwrite the in-process settings cache (optimistic read-your-write view). */
+export function setRemoteSettingsCache(next: RemoteSettings): void {
+  _cache = next;
+}
+
+/**
+ * Read real on-disk settings for a single synchronous snapshot (no repair
+ * journal bookkeeping exposed — callers only need `.settings`).
+ */
+export function readCurrentRemoteSettingsSyncForScope(): CurrentRemoteSettingsSync {
+  const current = readCurrentRemoteSettingsSync(getRemoteSettingsPath());
+  return { settings: current?.settings ?? {} };
+}
+
+/**
+ * Any of this process's own not-yet-applied pending permission-mode
+ * mutations for a single scope key, oldest first, so a caller can fold them
+ * on top of a fresh disk read for write-your-own-write consistency.
+ */
+export function peekPendingPermissionModeMutation(
+  scopeKey: string,
+): PermissionModeMutation[] {
+  const mutations: PermissionModeMutation[] = [];
+  for (const pending of _pendingPatches) {
+    const mutation = pending.patch.permissionModeMap?.[scopeKey];
+    if (mutation) mutations.push(mutation);
+  }
+  return mutations;
+}
+
+export { queueRemoteSettingsPatch, scheduleRemoteSettingsWrite };
 
 /**
  * Attempt immediate repair persistence and fence older queued snapshots.
