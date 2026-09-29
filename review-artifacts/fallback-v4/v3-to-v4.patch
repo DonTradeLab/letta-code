@@ -1,0 +1,1465 @@
+diff --git a/src/backend/dev/fake-headless-backend.ts b/src/backend/dev/fake-headless-backend.ts
+index 423ff66401d9fd9b756a2399494f5cba02050755..72e18923d26d128376f67641a1b7b8d7f7f0a457 100644
+--- a/src/backend/dev/fake-headless-backend.ts
++++ b/src/backend/dev/fake-headless-backend.ts
+@@ -17,15 +17,14 @@ import type {
+   ConversationResumeTailOptions,
+   RunMessageStreamBody,
+ } from "@/backend/backend";
++import { effectiveLocalAgent } from "@/backend/local/effective-local-agent";
+ import {
+   LocalBackendNotFoundError,
+   LocalStore,
+   type LocalStoreOptions,
+ } from "@/backend/local/local-store";
+ import { isLocalStateChunkOnly } from "@/backend/local/local-stream-chunks";
+-import type { LocalAgentRecord } from "@/backend/local/local-types";
+ import { TURN_DID_NOT_COMPLETE } from "@/constants";
+-import { isRecord } from "@/utils/type-guards";
+ import {
+   DeterministicPongExecutor,
+   type HeadlessTurnExecutor,
+@@ -129,29 +128,6 @@ function localStopReasonChunk(stopReason: string): LettaStreamingResponse {
+   } as LettaStreamingResponse;
+ }
+ 
+-function effectiveAgentForConversation(
+-  agent: LocalAgentRecord,
+-  conversation: Conversation,
+-): LocalAgentRecord {
+-  const conversationRecord = conversation as unknown as Record<string, unknown>;
+-  const conversationModelSettings = isRecord(conversationRecord.model_settings)
+-    ? conversationRecord.model_settings
+-    : undefined;
+-  return {
+-    ...agent,
+-    ...(typeof conversationRecord.model === "string"
+-      ? { model: conversationRecord.model }
+-      : {}),
+-    model_settings: {
+-      ...agent.model_settings,
+-      ...(conversationModelSettings ?? {}),
+-      ...(typeof conversationRecord.context_window_limit === "number"
+-        ? { context_window_limit: conversationRecord.context_window_limit }
+-        : {}),
+-    },
+-  };
+-}
+-
+ function createReplayStream(
+   chunks: LettaStreamingResponse[],
+ ): Stream<LettaStreamingResponse> {
+@@ -488,7 +464,7 @@ export class HeadlessBackend implements Backend {
+       turnInput.conversationId,
+       turnInput.agentId,
+     );
+-    const agent = effectiveAgentForConversation(
++    const agent = effectiveLocalAgent(
+       this.store.retrieveExecutionAgentRecord(
+         turnInput.conversationId,
+         turnInput.agentId,
+diff --git a/src/backend/dev/native-inference-fallback.ts b/src/backend/dev/native-inference-fallback.ts
+index 74fb94c43af49b28a20782b01db6baa34b0b90b7..2e5abecefb20679deba59d6c2273187787c8695d 100644
+--- a/src/backend/dev/native-inference-fallback.ts
++++ b/src/backend/dev/native-inference-fallback.ts
+@@ -47,8 +47,8 @@ export interface NativeInferenceModelAttempt {
+ }
+ 
+ /**
+- * Prototype-only policy seam. Production does not install a policy.
+- *
++ * Policy seam. Local production startup derives a scoped policy from the
++ * validated native-inference-fallback.json configuration (OFF by default).
+  * The caller owns identity/lineage eligibility, approved finite destinations,
+  * credential/capability checks, and the live owner/manual-selection revision.
+  * Returning null fails closed. The adapter never mutates the stored model.
+diff --git a/src/backend/dev/pi-stream-adapter.ts b/src/backend/dev/pi-stream-adapter.ts
+index c019eebcc0d7a73854d5ca2d178a304d8c7766ab..4ebac9fad811e9c144997f297378c4e3f0a2419e 100644
+--- a/src/backend/dev/pi-stream-adapter.ts
++++ b/src/backend/dev/pi-stream-adapter.ts
+@@ -633,6 +633,7 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+         messageCount: context.messages.length,
+         contextWindow: resolved.model.contextWindow,
+       });
++      await this.assertNativeAttemptCurrent(input, fallbackAttempt);
+       const result = this.runStream(
+         resolved.model as Model<string>,
+         context,
+diff --git a/src/backend/dev/provider-turn-executor.ts b/src/backend/dev/provider-turn-executor.ts
+index b2ddd01310556a1cb80bbc1833ad5d585bfced6c..2745f34475e1b7ba6e65ac21dbfe616d7cefa949 100644
+--- a/src/backend/dev/provider-turn-executor.ts
++++ b/src/backend/dev/provider-turn-executor.ts
+@@ -35,6 +35,8 @@ const LOCAL_CONTEXT_COMPACTION_RESERVE_TOKENS = 16_384;
+ const LOCAL_SMALL_CONTEXT_COMPACTION_RESERVE_RATIO = 0.2;
+ 
+ export interface ProviderTurnInput {
++  /** Internal execution signal, never read from the request body. */
++  abortSignal?: AbortSignal;
+   conversationId: string;
+   agentId: string;
+   agent: LocalAgentRecord;
+@@ -427,8 +429,8 @@ function identityForContentSegment(
+ function createProviderLettaStream(
+   events: AsyncIterable<ProviderStreamEvent>,
+   contextTokensEstimate?: number,
++  controller = new AbortController(),
+ ): Stream<LettaStreamingResponse> {
+-  const controller = new AbortController();
+   return {
+     controller,
+     async *[Symbol.asyncIterator]() {
+@@ -555,11 +557,16 @@ export class ProviderTurnExecutor implements HeadlessTurnExecutor {
+   ) {}
+ 
+   async execute(input: HeadlessTurnExecutorInput) {
+-    const providerInput = buildProviderTurnInput(input);
++    const controller = new AbortController();
++    const providerInput = {
++      ...buildProviderTurnInput(input),
++      abortSignal: controller.signal,
++    };
+     const events = await this.adapter.stream(providerInput);
+     return createProviderLettaStream(
+       events,
+       estimateProviderContextTokens(providerInput),
++      controller,
+     );
+   }
+ }
+diff --git a/src/backend/local/effective-local-agent.test.ts b/src/backend/local/effective-local-agent.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6c9a4aa200990d073cb437260105d080d09d04fd
+--- /dev/null
++++ b/src/backend/local/effective-local-agent.test.ts
+@@ -0,0 +1,24 @@
++import { expect, test } from "bun:test";
++import { effectiveLocalAgent } from "./effective-local-agent";
++
++test("dispatch and fallback fence use the same outer context and nested effort precedence", () => {
++  const agent = {
++    id: "agent-local-test",
++    name: "test",
++    system: "test",
++    tags: [],
++    model: "fixture/primary",
++    model_settings: { reasoning_effort: "low", context_window_limit: 4000 },
++  };
++  const effective = effectiveLocalAgent(agent, {
++    model: "fixture/reserve",
++    model_settings: { reasoning_effort: "high", context_window_limit: 8000 },
++    context_window_limit: 16000,
++  } as never);
++  expect(effective.model).toBe("fixture/reserve");
++  expect(effective.model_settings).toEqual({
++    reasoning_effort: "high",
++    context_window_limit: 16000,
++  });
++  expect(agent.model).toBe("fixture/primary");
++});
+diff --git a/src/backend/local/effective-local-agent.ts b/src/backend/local/effective-local-agent.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae7fa15a5bc91c8bddc1f968d76581a7b06844ca
+--- /dev/null
++++ b/src/backend/local/effective-local-agent.ts
+@@ -0,0 +1,22 @@
++import type { Conversation } from "@letta-ai/letta-client/resources/conversations/conversations";
++import { isRecord } from "@/utils/type-guards";
++import type { LocalAgentRecord } from "./local-types";
++
++/** Shared by dispatch and its manual-selection fence, including outer context overrides. */
++export function effectiveLocalAgent(
++  agent: LocalAgentRecord,
++  conversation: Conversation,
++): LocalAgentRecord {
++  const record = conversation as unknown as Record<string, unknown>;
++  return {
++    ...agent,
++    ...(typeof record.model === "string" ? { model: record.model } : {}),
++    model_settings: {
++      ...agent.model_settings,
++      ...(isRecord(record.model_settings) ? record.model_settings : {}),
++      ...(typeof record.context_window_limit === "number"
++        ? { context_window_limit: record.context_window_limit }
++        : {}),
++    },
++  };
++}
+diff --git a/src/backend/local/local-backend.ts b/src/backend/local/local-backend.ts
+index f6547750820b1b9944c771fe41d870fdb099c13c..81cd474cfd5a54f6ecb428d4aa127d6248db7885 100644
+--- a/src/backend/local/local-backend.ts
++++ b/src/backend/local/local-backend.ts
+@@ -45,6 +45,7 @@ import {
+   summarizeLocalMessagesAll,
+   summarizeLocalMessagesSlidingWindow,
+ } from "./compaction";
++import { effectiveLocalAgent } from "./effective-local-agent";
+ import { initialMemoryFilesFromCreateBody } from "./initial-memory";
+ import {
+   createLocalExecutor,
+@@ -228,6 +229,18 @@ export class LocalBackend extends HeadlessBackend {
+           localBackendRef.current?.emitLlmStart(info) ?? Promise.resolve(),
+         (info) =>
+           localBackendRef.current?.emitLlmEnd(info) ?? Promise.resolve(),
++        (input) => {
++          const store = localBackendRef.current?.store;
++          return store
++            ? effectiveLocalAgent(
++                store.retrieveExecutionAgentRecord(
++                  input.conversationId,
++                  input.agentId,
++                ),
++                store.retrieveConversation(input.conversationId, input.agentId),
++              )
++            : undefined;
++        },
+       ),
+       storeOptions,
+       {
+diff --git a/src/backend/local/local-executor-factory.ts b/src/backend/local/local-executor-factory.ts
+index 04c039e0166166d8ea4d4abbd38a15458556f14b..f0362eb32ddb0b5e771006197680cddd30d9150b 100644
+--- a/src/backend/local/local-executor-factory.ts
++++ b/src/backend/local/local-executor-factory.ts
+@@ -15,9 +15,18 @@ import type {
+   LlmStartInfo,
+   ProviderTurnInput,
+ } from "@/backend/dev/provider-turn-executor";
+-import { ProviderTurnExecutor } from "@/backend/dev/provider-turn-executor";
++import {
++  ProviderTurnExecutor,
++  providerLettaChunk,
++} from "@/backend/dev/provider-turn-executor";
+ import type { LocalCompactionStats } from "./compaction";
+ import type { LocalMessage } from "./local-message";
++import { loadNativeFallbackConfig } from "./native-fallback-config";
++import {
++  createNativeFallbackPolicy,
++  type NativeFallbackAudit,
++  type ReadFallbackSelection,
++} from "./native-fallback-policy";
+ 
+ export type LocalBackendExecutionMode =
+   | "pi"
+@@ -29,7 +38,7 @@ export interface CreateLocalExecutorOptions {
+   executionMode?: LocalBackendExecutionMode;
+   executor?: HeadlessTurnExecutor;
+   stream?: PiStreamFunction;
+-  /** Prototype-only injected policy; never configured by production startup. */
++  /** Test seam. Production derives the policy from validated local configuration. */
+   nativeInferenceFallback?: NativeInferenceFallbackPolicy;
+ }
+ 
+@@ -55,6 +64,7 @@ export function createLocalExecutor(
+   ) => ReturnType<LocalCompactionCallback>,
+   onLlmStart?: (info: LlmStartInfo) => void | Promise<void>,
+   onLlmEnd?: (info: LlmEndInfo) => void | Promise<void>,
++  readFallbackSelection?: ReadFallbackSelection,
+ ): HeadlessTurnExecutor {
+   if (options.executor) return options.executor;
+   if (options.executionMode === "deterministic") {
+@@ -63,16 +73,78 @@ export function createLocalExecutor(
+   if (options.executionMode === "deterministic-reflection") {
+     return new DeterministicReflectionExecutor();
+   }
+-  return new ProviderTurnExecutor(
+-    new PiStreamAdapter({
+-      stream: options.stream,
+-      localProviderAuthStorageDir: options.storageDir,
+-      modelsRuntime,
+-      onContextWindowOverflow,
+-      onContextPressure,
+-      onLlmStart,
+-      onLlmEnd,
+-      nativeInferenceFallback: options.nativeInferenceFallback,
+-    }),
+-  );
++  const loaded = loadNativeFallbackConfig(options.storageDir);
++  if (loaded && options.nativeInferenceFallback) {
++    throw new Error("Cannot install two native inference fallback policies");
++  }
++  return new ProviderTurnExecutor({
++    async *stream(originalInput) {
++      const scoped = loaded?.config.scopes.some(
++        (scope) => scope.agentId === originalInput.agentId,
++      );
++      const signal =
++        scoped && loaded
++          ? AbortSignal.any([
++              ...(originalInput.abortSignal ? [originalInput.abortSignal] : []),
++              AbortSignal.timeout(loaded.config.timeoutMs),
++            ])
++          : options.nativeInferenceFallback
++            ? originalInput.abortSignal
++            : undefined;
++      const input = { ...originalInput, abortSignal: signal };
++      const observations: NativeFallbackAudit[] = [];
++      const policy =
++        options.nativeInferenceFallback ??
++        createNativeFallbackPolicy(
++          loaded,
++          input,
++          options.storageDir,
++          modelsRuntime,
++          readFallbackSelection,
++          (event) => observations.push(event),
++        );
++      const adapter = new PiStreamAdapter({
++        stream: options.stream,
++        localProviderAuthStorageDir: options.storageDir,
++        modelsRuntime,
++        onContextWindowOverflow,
++        onContextPressure,
++        onLlmStart,
++        onLlmEnd,
++        nativeInferenceFallback: policy,
++        abortSignal: signal,
++      });
++      function* drain() {
++        for (const event of observations.splice(0)) {
++          yield providerLettaChunk({
++            message_type: "event_message",
++            event_type: "native_inference_fallback",
++            event_data: event,
++          } as never);
++        }
++      }
++      try {
++        for await (const event of adapter.stream(input)) {
++          yield* drain();
++          // Diagnostic delivery is also an await boundary. Never deliver stale model output.
++          if (
++            signal?.aborted ||
++            (policy?.isAttemptCurrent &&
++              !(await policy.isAttemptCurrent({
++                input,
++                model: input.agent.model,
++                attempt: 0,
++              })))
++          ) {
++            throw new Error(
++              "Native inference attempt invalidated before delivery",
++            );
++          }
++          yield event;
++        }
++      } finally {
++        yield* drain();
++      }
++    },
++  });
+ }
+diff --git a/src/backend/local/native-fallback-config.test.ts b/src/backend/local/native-fallback-config.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b7b3ecfb3fc64b5a048114fc2a76a95be8db623
+--- /dev/null
++++ b/src/backend/local/native-fallback-config.test.ts
+@@ -0,0 +1,60 @@
++import { expect, test } from "bun:test";
++import { parseNativeFallbackConfig } from "./native-fallback-config";
++
++function valid() {
++  const target = {
++    model: "fixture/primary",
++    provider: "fixture",
++    credentialProvider: "fixture",
++    contextWindow: 128000,
++    maxOutputTokens: 4096,
++    effort: "high",
++    tools: true,
++    input: ["text"],
++  };
++  return {
++    version: 1,
++    enabled: true,
++    owner: "native-inference",
++    externalController: "disabled-for-scopes",
++    timeoutMs: 60000,
++    scopes: [
++      {
++        agentId: "agent-local-fixture",
++        lineage: "self",
++        chain: [target, { ...target, model: "fixture/reserve" }],
++      },
++    ],
++  };
++}
++test("OFF is explicit and validated; ON requires exact scope and single-owner attestation", () => {
++  expect(
++    parseNativeFallbackConfig({ version: 1, enabled: false }),
++  ).toBeUndefined();
++  expect(parseNativeFallbackConfig(valid())?.scopes).toHaveLength(1);
++  for (const patch of [
++    { enabled: "true" },
++    { version: 2 },
++    { scopes: [] },
++    { owner: "watchdog" },
++    { externalController: "active" },
++    { timeoutMs: Infinity },
++    { apiKey: "not-allowed" },
++  ]) {
++    expect(() => parseNativeFallbackConfig({ ...valid(), ...patch })).toThrow();
++  }
++});
++test("no wildcard lineage, cycles, arbitrary credentials or effort downgrade", () => {
++  const value = valid();
++  for (const scope of value.scopes) scope.lineage = "descendants";
++  expect(() => parseNativeFallbackConfig(value)).toThrow();
++  const cyclic = valid();
++  for (const scope of cyclic.scopes)
++    for (const entry of scope.chain) entry.model = "fixture/primary";
++  expect(() => parseNativeFallbackConfig(cyclic)).toThrow();
++  const credential = valid();
++  for (const scope of credential.scopes)
++    for (const entry of scope.chain)
++      entry.credentialProvider = "another-account";
++  expect(() => parseNativeFallbackConfig(credential)).toThrow();
++});
+diff --git a/src/backend/local/native-fallback-config.ts b/src/backend/local/native-fallback-config.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1100e732f7b2ad5d1287c7a48a6d8a6d99684f63
+--- /dev/null
++++ b/src/backend/local/native-fallback-config.ts
+@@ -0,0 +1,176 @@
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { isRecord } from "@/utils/type-guards";
++
++export interface NativeFallbackTarget {
++  model: string;
++  provider: string;
++  /** Provider registry/auth-store reference, never a credential value. */
++  credentialProvider: string;
++  contextWindow: number;
++  maxOutputTokens: number;
++  effort: "low" | "medium" | "high" | "xhigh" | "max";
++  tools: boolean;
++  input: Array<"text" | "image">;
++}
++export interface NativeFallbackConfig {
++  version: 1;
++  enabled: true;
++  owner: "native-inference";
++  /** Operator attestation: the external writer is disabled for exactly these scopes. */
++  externalController: "disabled-for-scopes";
++  timeoutMs: number;
++  scopes: Array<{
++    agentId: string;
++    /** No implicit child/peer inheritance; no forged parent metadata admission. */
++    lineage: "self";
++    chain: NativeFallbackTarget[];
++  }>;
++}
++export interface LoadedNativeFallbackConfig {
++  config: NativeFallbackConfig;
++  isCurrent(): boolean;
++}
++
++function invalid(field: string): never {
++  throw new Error(`Invalid native inference fallback configuration: ${field}`);
++}
++function keys(value: Record<string, unknown>, allowed: string[]): void {
++  if (Object.keys(value).some((key) => !allowed.includes(key)))
++    invalid("unknown field");
++}
++function positiveInteger(value: unknown, limit: number): value is number {
++  return (
++    Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= limit
++  );
++}
++function target(value: unknown): NativeFallbackTarget {
++  if (!isRecord(value)) invalid("target");
++  keys(value, [
++    "model",
++    "provider",
++    "credentialProvider",
++    "contextWindow",
++    "maxOutputTokens",
++    "effort",
++    "tools",
++    "input",
++  ]);
++  if (
++    typeof value.model !== "string" ||
++    !/^[a-z0-9-]+\/[^\s]+$/.test(value.model)
++  )
++    invalid("model handle");
++  if (
++    value.provider !== value.model.split("/")[0] ||
++    value.credentialProvider !== value.provider
++  )
++    invalid("provider reference");
++  if (
++    !positiveInteger(value.contextWindow, 10_000_000) ||
++    !positiveInteger(value.maxOutputTokens, 1_000_000) ||
++    value.maxOutputTokens >= value.contextWindow
++  )
++    invalid("context/output limits");
++  if (!["low", "medium", "high", "xhigh", "max"].includes(String(value.effort)))
++    invalid("effort");
++  if (
++    typeof value.tools !== "boolean" ||
++    !Array.isArray(value.input) ||
++    !value.input.includes("text") ||
++    value.input.some((v) => v !== "text" && v !== "image")
++  )
++    invalid("capabilities");
++  return value as unknown as NativeFallbackTarget;
++}
++
++export function parseNativeFallbackConfig(
++  value: unknown,
++): NativeFallbackConfig | undefined {
++  if (!isRecord(value)) invalid("object required");
++  if (value.enabled === false) {
++    keys(value, [
++      "version",
++      "enabled",
++      "owner",
++      "externalController",
++      "timeoutMs",
++      "scopes",
++    ]);
++    if (value.version !== 1) invalid("version");
++    return undefined;
++  }
++  keys(value, [
++    "version",
++    "enabled",
++    "owner",
++    "externalController",
++    "timeoutMs",
++    "scopes",
++  ]);
++  if (
++    value.version !== 1 ||
++    value.enabled !== true ||
++    value.owner !== "native-inference" ||
++    value.externalController !== "disabled-for-scopes"
++  )
++    invalid("activation/ownership");
++  if (!positiveInteger(value.timeoutMs, 3_600_000)) invalid("timeoutMs");
++  if (!Array.isArray(value.scopes) || value.scopes.length === 0)
++    invalid("explicit scopes required");
++  const seen = new Set<string>();
++  for (const scope of value.scopes) {
++    if (!isRecord(scope)) invalid("scope");
++    keys(scope, ["agentId", "lineage", "chain"]);
++    if (
++      typeof scope.agentId !== "string" ||
++      !/^agent-local-[a-zA-Z0-9-]+$/.test(scope.agentId) ||
++      seen.has(scope.agentId)
++    )
++      invalid("agentId");
++    seen.add(scope.agentId);
++    if (scope.lineage !== "self") invalid("lineage (only self is supported)");
++    if (
++      !Array.isArray(scope.chain) ||
++      scope.chain.length < 2 ||
++      scope.chain.length > 4
++    )
++      invalid("finite chain (2..4)");
++    const handles = scope.chain.map((entry) => target(entry).model);
++    if (new Set(handles).size !== handles.length)
++      invalid("duplicate destination");
++  }
++  return value as unknown as NativeFallbackConfig;
++}
++
++/** Missing/OFF preserves baseline. Malformed, unreadable, or unsupported ON fails closed. */
++export function loadNativeFallbackConfig(
++  storageDir: string,
++): LoadedNativeFallbackConfig | undefined {
++  const path = join(storageDir, "native-inference-fallback.json");
++  let raw: string;
++  try {
++    raw = readFileSync(path, "utf8");
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
++    throw new Error("Cannot read native inference fallback configuration");
++  }
++  let value: unknown;
++  try {
++    value = JSON.parse(raw);
++  } catch {
++    invalid("JSON");
++  }
++  const config = parseNativeFallbackConfig(value);
++  if (!config) return undefined;
++  return {
++    config,
++    isCurrent() {
++      try {
++        return readFileSync(path, "utf8") === raw;
++      } catch {
++        return false;
++      }
++    },
++  };
++}
+diff --git a/src/backend/local/native-fallback-policy.test.ts b/src/backend/local/native-fallback-policy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..34a0546f87b5964c1915693985da773b8cdffaab
+--- /dev/null
++++ b/src/backend/local/native-fallback-policy.test.ts
+@@ -0,0 +1,85 @@
++import { expect, test } from "bun:test";
++import { runFallbackV4Scenario } from "@/test-utils/fallback-v4-scenario";
++
++test("production factory finishes one task on reserve after a real Write, without re-appending input", async () => {
++  const report = await runFallbackV4Scenario();
++  expect(report.requests.map((r) => r.model)).toEqual([
++    "primary",
++    "primary",
++    "reserve",
++  ]);
++  expect(report.requests.at(-1)?.messages).toEqual(
++    report.requests.at(-2)?.messages,
++  );
++  expect(report.requests.map((r) => r.effort)).toEqual([
++    "high",
++    "high",
++    "high",
++  ]);
++  expect(report.effects).toBe(1);
++  expect(report.effect).toBe("one real tool effect\n");
++  expect(
++    report.chunks.filter((c) => c.message_type === "assistant_message"),
++  ).toHaveLength(1);
++  expect(
++    report.chunks.filter((c) => c.message_type === "approval_request_message"),
++  ).toHaveLength(1);
++  expect(
++    report.history.filter((m) => m.message_type === "user_message"),
++  ).toHaveLength(1);
++  const events = report.chunks
++    .filter((c) => c.event_type === "native_inference_fallback")
++    .map((c) => c.event_data as Record<string, unknown>);
++  expect(
++    events.every(
++      (e) =>
++        e.taskId === "v4-task-input" &&
++        e.agentId === report.agentId &&
++        e.lineage === "self",
++    ),
++  ).toBe(true);
++  expect(
++    events
++      .filter(
++        (e) =>
++          e.outcome === "quota" || (e.outcome === "success" && e.attempt === 2),
++      )
++      .map((e) => [e.model, e.provider, e.outcome]),
++  ).toEqual([
++    ["v4-primary/primary", "v4-primary", "quota"],
++    ["v4-reserve/reserve", "v4-reserve", "success"],
++  ]);
++});
++
++for (const options of [
++  { enabled: false },
++  { status: 401 },
++  { status: 403 },
++  { unlisted: true },
++  { missingReserve: true },
++  { toolsIncompatible: true },
++  { incompatible: true },
++  { lowPrimaryEffort: true },
++  { manualChange: true },
++  { cancel: true },
++  { timeout: true },
++]) {
++  test(`factory fails closed without duplicate tool effects: ${JSON.stringify(options)}`, async () => {
++    const report = await runFallbackV4Scenario(options);
++    expect(report.requests.map((r) => r.model)).toEqual(["primary", "primary"]);
++    expect(report.effects).toBe(1);
++    expect(
++      report.chunks.filter((c) => c.message_type === "assistant_message"),
++    ).toHaveLength(0);
++    expect(report.chunks.some((c) => c.message_type === "error_message")).toBe(
++      true,
++    );
++    expect(
++      report.history.filter((m) => m.message_type === "user_message"),
++    ).toHaveLength(1);
++    if ("enabled" in options)
++      expect(
++        report.chunks.some((c) => c.event_type === "native_inference_fallback"),
++      ).toBe(false);
++  });
++}
+diff --git a/src/backend/local/native-fallback-policy.ts b/src/backend/local/native-fallback-policy.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a5e1e08aa15c7ad6556e04c5b76f6f7505a48ec
+--- /dev/null
++++ b/src/backend/local/native-fallback-policy.ts
+@@ -0,0 +1,173 @@
++import type { NativeInferenceFallbackPolicy } from "@/backend/dev/native-inference-fallback";
++import {
++  reasoningForSettings,
++  resolvePiModelForAgent,
++} from "@/backend/dev/pi-model-factory";
++import type { LocalPiModelsRuntime } from "@/backend/dev/pi-models-runtime";
++import {
++  estimateProviderContextTokens,
++  type ProviderTurnInput,
++} from "@/backend/dev/provider-turn-executor";
++import type { LocalAgentRecord } from "./local-types";
++import type {
++  LoadedNativeFallbackConfig,
++  NativeFallbackTarget,
++} from "./native-fallback-config";
++
++export type ReadFallbackSelection = (
++  input: ProviderTurnInput,
++) => LocalAgentRecord | undefined;
++export interface NativeFallbackAudit {
++  event: "attempt" | "rejected";
++  agentId: string;
++  conversationId: string;
++  taskId: string;
++  lineage: "self";
++  owner: "native-inference";
++  [key: string]: unknown;
++}
++
++function selection(agent: LocalAgentRecord): string {
++  return JSON.stringify([agent.model, agent.model_settings]);
++}
++
++/** One policy per inference. The original stored selection, not an override, fences every attempt. */
++export function createNativeFallbackPolicy(
++  loaded: LoadedNativeFallbackConfig | undefined,
++  input: ProviderTurnInput,
++  storageDir: string,
++  runtime: LocalPiModelsRuntime,
++  readSelection: ReadFallbackSelection | undefined,
++  observe: (event: NativeFallbackAudit) => void,
++): NativeInferenceFallbackPolicy | undefined {
++  const scope = loaded?.config.scopes.find(
++    (entry) => entry.agentId === input.agentId,
++  );
++  if (!loaded || !scope) return undefined;
++  const original = selection(input.agent);
++  const verifiedCatalog = new Map<string, string>();
++  const catalogSnapshot = (handle: string) => {
++    const slash = handle.indexOf("/");
++    return JSON.stringify(
++      runtime.getModel(handle.slice(0, slash), handle.slice(slash + 1)),
++    );
++  };
++  const started = Date.now();
++  const lastUser = input.uiMessages.findLast(
++    (message) => message.role === "user",
++  );
++  const taskId =
++    lastUser?.role === "user" ? (lastUser.otid ?? lastUser.id) : "unknown";
++  const identity = {
++    agentId: input.agentId,
++    conversationId: input.conversationId,
++    taskId,
++    lineage: "self" as const,
++    owner: "native-inference" as const,
++  };
++  const reject = (reason: string): never => {
++    observe({ ...identity, event: "rejected", reason });
++    throw new Error(`Native inference fallback refused: ${reason}`);
++  };
++  const checkTarget = async (destination: NativeFallbackTarget) => {
++    const resolved = await resolvePiModelForAgent(
++      destination.model,
++      {},
++      {
++        modelsRuntime: runtime,
++        localProviderAuthStorageDir: storageDir,
++        abortSignal: input.abortSignal,
++      },
++    );
++    if (resolved.model.provider !== destination.provider || !resolved.apiKey)
++      reject("provider/credential reference unavailable");
++    const requiredContext = Number(
++      input.agent.model_settings.context_window_limit ?? 0,
++    );
++    if (
++      destination.contextWindow > resolved.model.contextWindow ||
++      destination.contextWindow < requiredContext ||
++      destination.maxOutputTokens > resolved.model.maxTokens ||
++      destination.contextWindow <
++        (estimateProviderContextTokens(input) ?? Infinity) +
++          destination.maxOutputTokens
++    )
++      reject("context capacity incompatible");
++    const images = input.uiMessages.some(
++      (m) =>
++        Array.isArray(m.content) &&
++        m.content.some((part) => part.type === "image"),
++    );
++    if (
++      images &&
++      (!destination.input.includes("image") ||
++        !resolved.model.input.includes("image"))
++    )
++      reject("image capacity incompatible");
++    if (input.clientTools.length > 0 && !destination.tools)
++      reject("tool capacity incompatible");
++    if (
++      !resolved.model.reasoning ||
++      reasoningForSettings(
++        { reasoning_effort: destination.effort },
++        destination.model,
++        resolved.model,
++      ) !== destination.effort
++    )
++      reject("effort incompatible (no silent downgrade)");
++    const mapping = resolved.model.thinkingLevelMap?.[destination.effort];
++    if (mapping !== undefined && mapping !== destination.effort)
++      reject("provider effort mapping incompatible");
++    const snapshot = catalogSnapshot(destination.model);
++    if (!snapshot) return reject("catalog entry unavailable at validation");
++    verifiedCatalog.set(destination.model, snapshot);
++    return {
++      model: destination.model,
++      modelSettings: {
++        context_window_limit: destination.contextWindow,
++        max_tokens: destination.maxOutputTokens,
++        reasoning_effort: destination.effort,
++      },
++    };
++  };
++  return {
++    async isAttemptCurrent(context) {
++      const current = readSelection?.(input);
++      const verified = verifiedCatalog.get(context.model);
++      return (
++        (!verified || catalogSnapshot(context.model) === verified) &&
++        !input.abortSignal?.aborted &&
++        Date.now() - started < loaded.config.timeoutMs &&
++        loaded.isCurrent() &&
++        !!current &&
++        selection(current) === original
++      );
++    },
++    async resolveDestination(_context, failure, attemptedModels) {
++      if (failure.category !== "quota_exhausted") return null;
++      const primary = scope.chain[0];
++      if (!primary || input.agent.model !== primary.model)
++        return reject("primary selection is outside configured chain");
++      if (
++        reasoningForSettings(input.agent.model_settings, input.agent.model) !==
++        primary.effort
++      )
++        return reject("primary effort is outside configured chain");
++      const next = scope.chain[attemptedModels.length];
++      if (!next) return reject("approved chain exhausted");
++      try {
++        return await checkTarget(next);
++      } catch (error) {
++        if (
++          error instanceof Error &&
++          error.message.startsWith("Native inference fallback refused:")
++        )
++          throw error;
++        return reject("destination could not be resolved");
++      }
++    },
++    onModelAttempt(attempt) {
++      observe({ ...identity, event: "attempt", ...attempt });
++    },
++  };
++}
+diff --git a/src/backend/native-inference-fallback.test.ts b/src/backend/native-inference-fallback.test.ts
+index 2ddd9390d30265f71dcf983d3354a6f245780758..d485d4c675c74ae00ee7b88cc3d692a207e54987 100644
+--- a/src/backend/native-inference-fallback.test.ts
++++ b/src/backend/native-inference-fallback.test.ts
+@@ -299,6 +299,26 @@ describe("native inference fallback classifier", () => {
+ });
+ 
+ describe("native inference fallback buffered dispatch", () => {
++  test("revalidates after the awaited LLM-start hook before dispatch", async () => {
++    let current = true;
++    let dispatches = 0;
++    const adapter = new PiStreamAdapter({
++      stream: (...args) => {
++        dispatches += 1;
++        return effectfulSuccessStream()(...args);
++      },
++      onLlmStart: async () => {
++        current = false;
++      },
++      nativeInferenceFallback: syntheticPolicy({ current: () => current }),
++    });
++    const result = await collect(adapter);
++    expect(result.error).toMatchObject({
++      name: "NativeInferenceAttemptInvalidatedError",
++    });
++    expect(dispatches).toBe(0);
++    expect(result.events).toHaveLength(0);
++  });
+   test.each(["abort", "owner", "manual"] as const)(
+     "revalidates %s between flushed events before a tool can escape",
+     async (invalidation) => {
+diff --git a/src/test-utils/fallback-v4-listener.ts b/src/test-utils/fallback-v4-listener.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..808cbbd82a6e8a558df3f744bc677265819545a4
+--- /dev/null
++++ b/src/test-utils/fallback-v4-listener.ts
+@@ -0,0 +1,89 @@
++import { mkdir } from "node:fs/promises";
++import { join } from "node:path";
++import { __testSetBackend, type Backend } from "@/backend";
++import { settingsManager } from "@/settings-manager";
++import { getOrCreateScopedRuntime } from "@/websocket/listener/conversation-runtime";
++import { createRuntime } from "@/websocket/listener/lifecycle";
++import {
++  __listenerModAdapterTestUtils,
++  createListenerModAdapter,
++  disposeListenerModAdapter,
++} from "@/websocket/listener/mod-adapter";
++import { getOrCreateConversationPermissionModeStateRef } from "@/websocket/listener/permission-mode";
++import { setActiveRuntime } from "@/websocket/listener/runtime";
++import type { ListenerTransport } from "@/websocket/listener/transport";
++import { handleIncomingMessage } from "@/websocket/listener/turn";
++import { __listenerWarmupTestUtils } from "@/websocket/listener/warmup";
++
++/** One real listener submission; no direct tool execution or result injection. */
++export async function runFallbackV4Listener(
++  backend: Backend,
++  agentId: string,
++  conversationId: string,
++  root: string,
++) {
++  __testSetBackend(backend);
++  await settingsManager.reset();
++  await settingsManager.initialize();
++  const modDir = join(root, "mods");
++  const cacheDir = join(root, "cache");
++  await mkdir(modDir);
++  await mkdir(cacheDir);
++  __listenerWarmupTestUtils.setWarmupDepsForTests({
++    ensureMemfsSyncedForAgent: async () => false,
++    ensureSecretsHydratedForAgent: async () => {},
++  });
++  __listenerModAdapterTestUtils.setEnsureMemfsSyncedForAgentForTests(
++    async () => false,
++  );
++  const listener = createRuntime();
++  listener.modAdapter = createListenerModAdapter({
++    globalModsDirectory: modDir,
++    cacheDirectory: cacheDir,
++  });
++  setActiveRuntime(listener);
++  const runtime = getOrCreateScopedRuntime(listener, agentId, conversationId);
++  const mode = getOrCreateConversationPermissionModeStateRef(
++    listener,
++    agentId,
++    conversationId,
++  );
++  mode.mode = "unrestricted";
++  const payloads: Record<string, unknown>[] = [];
++  const transport: ListenerTransport = {
++    kind: "local",
++    bufferedAmount: 0,
++    isOpen: () => true,
++    send: (payload: string) => {
++      payloads.push(JSON.parse(payload));
++    },
++  };
++  try {
++    await handleIncomingMessage(
++      {
++        type: "message",
++        agentId,
++        conversationId,
++        processOwnedTurn: true,
++        excludeInteractiveTools: true,
++        messages: [
++          {
++            role: "user",
++            content: "write once then answer",
++            client_message_id: "v4-task-input",
++          },
++        ],
++      },
++      transport,
++      runtime,
++      undefined,
++      undefined,
++      "v4-native-task",
++    );
++    return { payloads, lifecycle: runtime.turnLifecycle.snapshot().kind };
++  } finally {
++    disposeListenerModAdapter(listener);
++    __listenerWarmupTestUtils.resetWarmupDepsForTests();
++    await settingsManager.reset();
++  }
++}
+diff --git a/src/test-utils/fallback-v4-scenario.ts b/src/test-utils/fallback-v4-scenario.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a5d40152d65ca2050c203297e8036e3f9b0fc15f
+--- /dev/null
++++ b/src/test-utils/fallback-v4-scenario.ts
+@@ -0,0 +1,405 @@
++import assert from "node:assert/strict";
++import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
++import { createServer } from "node:http";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { getBackendForMode } from "@/backend";
++import {
++  registerPiProvider,
++  unregisterPiProvider,
++} from "@/backend/dev/pi-provider-mod-registry";
++import {
++  disableLocalBackendMemfsForProcess,
++  resetLocalBackendMemfsForProcess,
++} from "@/backend/local/paths";
++import {
++  clearTools,
++  executeTool,
++  getClientToolsFromRegistry,
++  loadSpecificTools,
++} from "@/tools/manager";
++
++export interface FallbackScenarioOptions {
++  listener?: boolean;
++  partial?: boolean;
++  manualChange?: boolean;
++  lowPrimaryEffort?: boolean;
++  unlisted?: boolean;
++  missingReserve?: boolean;
++  toolsIncompatible?: boolean;
++  enabled?: boolean;
++  status?: number;
++  incompatible?: boolean;
++  cancel?: boolean;
++  timeout?: boolean;
++}
++
++/** Real factory + real pi-ai HTTP drivers + real Write tool. No effect is written by this harness. */
++export async function runFallbackV4Scenario(
++  options: FallbackScenarioOptions = {},
++) {
++  const root = await mkdtemp(join(tmpdir(), "fallback-v4-"));
++  const storage = join(root, "backend");
++  await mkdir(storage);
++  const effect = join(root, "effect.txt");
++  const effectTool = options.listener ? "Bash" : "Write";
++  const requests: Array<{
++    model: string;
++    messages: unknown;
++    effort: unknown;
++    credentialMatchedReference: boolean;
++  }> = [];
++  let invalidateSelection = async () => {};
++  const server = createServer((req, res) => {
++    const data: Buffer[] = [];
++    req.on("data", (chunk) => data.push(Buffer.from(chunk)));
++    req.on("end", async () => {
++      const body = JSON.parse(Buffer.concat(data).toString());
++      requests.push({
++        model: body.model,
++        messages: body.messages,
++        effort: body.reasoning_effort,
++        credentialMatchedReference:
++          req.headers.authorization === `Bearer fake-v4-${body.model}`,
++      });
++      const hasToolResult = body.messages.some(
++        (m: { role: string }) => m.role === "tool",
++      );
++      if (body.model === "primary" && hasToolResult && !options.partial) {
++        if (options.timeout || options.cancel) return;
++        if (options.manualChange) await invalidateSelection();
++        res.writeHead(options.status ?? 429, {
++          "content-type": "application/json",
++        });
++        res.end(
++          JSON.stringify({
++            error: { code: "1310", message: "Weekly/Monthly Limit Exhausted" },
++          }),
++        );
++        return;
++      }
++      res.writeHead(200, { "content-type": "text/event-stream" });
++      const send = (delta: unknown, finish_reason: string | null) =>
++        res.write(
++          `data: ${JSON.stringify({
++            id: `response-${requests.length}`,
++            object: "chat.completion.chunk",
++            created: 1,
++            model: body.model,
++            choices: [{ index: 0, delta, finish_reason }],
++          })}\n\n`,
++        );
++      if (body.model === "primary" && hasToolResult && options.partial) {
++        send({ role: "assistant", content: "must-not-escape-primary" }, null);
++        send(
++          {
++            tool_calls: [
++              {
++                index: 0,
++                id: "must-not-run",
++                type: "function",
++                function: {
++                  name: "Write",
++                  arguments: JSON.stringify({
++                    file_path: join(root, "forbidden.txt"),
++                    content: "must not execute",
++                  }),
++                },
++              },
++            ],
++          },
++          null,
++        );
++        res.end(
++          `data: ${JSON.stringify({ error: { message: '429: {"code":"1310","message":"Quota after partial SSE"}' } })}\n\n`,
++        );
++        return;
++      }
++      if (!hasToolResult) {
++        send(
++          {
++            role: "assistant",
++            tool_calls: [
++              {
++                index: 0,
++                id: "write-once",
++                type: "function",
++                function: {
++                  name: effectTool,
++                  arguments: JSON.stringify(
++                    effectTool === "Bash"
++                      ? {
++                          command: `printf 'one real tool effect\\n' >> "${effect}"`,
++                          description: "Append one isolated test effect",
++                        }
++                      : {
++                          file_path: effect,
++                          content: "one real tool effect\n",
++                        },
++                  ),
++                },
++              },
++            ],
++          },
++          null,
++        );
++        send({}, "tool_calls");
++      } else {
++        send({ role: "assistant", content: "task-completed-on-reserve" }, null);
++        send({}, "stop");
++      }
++      res.end("data: [DONE]\n\n");
++    });
++  });
++  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
++  const address = server.address();
++  assert(address && typeof address !== "string");
++  const baseUrl = `http://127.0.0.1:${address.port}`;
++  const realFetch = globalThis.fetch;
++  globalThis.fetch = (async (
++    input: Parameters<typeof fetch>[0],
++    init?: RequestInit,
++  ) => {
++    const url = new URL(
++      typeof input === "string"
++        ? input
++        : input instanceof URL
++          ? input.href
++          : input.url,
++    );
++    if (
++      url.hostname !== "127.0.0.1" &&
++      url.hostname !== "localhost" &&
++      url.hostname !== "[::1]"
++    )
++      throw new Error("Non-loopback fetch blocked in V4 proof");
++    return realFetch(input, init);
++  }) as typeof fetch;
++  const previousStorage = process.env.LETTA_LOCAL_BACKEND_DIR;
++  const previousMode = process.env.LETTA_LOCAL_BACKEND_EXPERIMENTAL;
++  process.env.LETTA_LOCAL_BACKEND_EXPERIMENTAL = "1";
++  process.env.LETTA_LOCAL_BACKEND_DIR = storage;
++  disableLocalBackendMemfsForProcess();
++  for (const provider of ["v4-primary", "v4-reserve"]) {
++    const id = provider === "v4-primary" ? "primary" : "reserve";
++    registerPiProvider(provider, {
++      api: "openai-completions",
++      baseUrl,
++      apiKey: `fake-${provider}`,
++      models: [
++        {
++          id,
++          name: id,
++          reasoning: true,
++          input: ["text"],
++          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
++          contextWindow:
++            provider === "v4-reserve" && options.incompatible ? 4096 : 128000,
++          maxTokens: 4096,
++        },
++      ],
++    });
++  }
++  try {
++    const bootstrap = getBackendForMode("local");
++    const agent = await bootstrap.createAgent({
++      name: "fallback-v4-fixture",
++      model: "v4-primary/primary",
++      model_settings: {
++        context_window_limit: 128000,
++        max_tokens: 4096,
++        reasoning_effort: options.lowPrimaryEffort ? "low" : "high",
++      },
++    } as never);
++    const conversation = await bootstrap.createConversation({
++      agent_id: agent.id,
++    } as never);
++    await writeFile(
++      join(storage, "native-inference-fallback.json"),
++      JSON.stringify({
++        version: 1,
++        enabled: options.enabled !== false,
++        owner: "native-inference",
++        externalController: "disabled-for-scopes",
++        timeoutMs: options.timeout ? 80 : 5000,
++        scopes: [
++          {
++            agentId: options.unlisted ? "agent-local-unlisted" : agent.id,
++            lineage: "self",
++            chain: [
++              {
++                model: "v4-primary/primary",
++                provider: "v4-primary",
++                credentialProvider: "v4-primary",
++                contextWindow: 128000,
++                maxOutputTokens: 4096,
++                effort: "high",
++                tools: true,
++                input: ["text"],
++              },
++              {
++                model: options.missingReserve
++                  ? "v4-reserve/missing"
++                  : "v4-reserve/reserve",
++                provider: "v4-reserve",
++                credentialProvider: "v4-reserve",
++                contextWindow: 128000,
++                maxOutputTokens: 4096,
++                effort: "high",
++                tools: !options.toolsIncompatible,
++                input: ["text"],
++              },
++            ],
++          },
++        ],
++      }),
++    );
++    // The actual production factory, NOT a directly constructed adapter/controller/backend.
++    const backend = getBackendForMode("local");
++    invalidateSelection = async () => {
++      await backend.updateConversation(conversation.id, {
++        model: "v4-reserve/reserve",
++      } as never);
++    };
++    await loadSpecificTools([effectTool]);
++    if (options.listener) {
++      const { runFallbackV4Listener } = await import("./fallback-v4-listener");
++      const listener = await runFallbackV4Listener(
++        backend,
++        agent.id,
++        conversation.id,
++        root,
++      );
++      const history = (
++        await backend.listConversationMessages(conversation.id, {
++          limit: 100,
++          order: "asc",
++        } as never)
++      ).getPaginatedItems();
++      const content = await readFile(effect, "utf8");
++      return {
++        runtime: process.versions.bun
++          ? `bun ${process.versions.bun}`
++          : `node ${process.version}`,
++        options,
++        root,
++        taskId: "v4-task-input",
++        agentId: agent.id,
++        conversationId: conversation.id,
++        requests,
++        effects: history.filter((m) => m.message_type === "tool_return_message")
++          .length,
++        toolReturn: "listener-executed",
++        effect: content,
++        chunks: history as unknown as Array<Record<string, unknown>>,
++        history,
++        listener,
++      };
++    }
++    const chunks: Array<Record<string, unknown>> = [];
++    const body = {
++      agent_id: agent.id,
++      client_tools: getClientToolsFromRegistry(),
++      messages: [
++        {
++          role: "user",
++          content: "write once then answer",
++          otid: "v4-task-input",
++          client_message_id: "v4-task-input",
++        },
++      ],
++    };
++    const first = await backend.createConversationMessageStream(
++      conversation.id,
++      body as never,
++    );
++    for await (const chunk of first)
++      chunks.push(chunk as unknown as Record<string, unknown>);
++    const approval = chunks.find(
++      (c) => c.message_type === "approval_request_message",
++    ) as
++      | {
++          tool_call?: { tool_call_id: string; name: string; arguments: string };
++        }
++      | undefined;
++    const call = approval?.tool_call;
++    assert(
++      call,
++      `actual provider must produce a tool call: ${JSON.stringify(chunks)}`,
++    );
++    let effects = 0;
++    const result = await executeTool(call.name, JSON.parse(call.arguments), {
++      toolCallId: call.tool_call_id,
++      onFileWrite: () => {
++        effects += 1;
++      },
++    });
++    assert.equal(result.status, "success", JSON.stringify(result));
++    const next = await backend.createConversationMessageStream(
++      conversation.id,
++      {
++        agent_id: agent.id,
++        client_tools: getClientToolsFromRegistry(),
++        messages: [
++          {
++            type: "approval",
++            otid: "v4-approval-input",
++            approvals: [
++              {
++                type: "tool",
++                tool_call_id: call.tool_call_id,
++                tool_return: result.toolReturn,
++                status: result.status,
++              },
++            ],
++          },
++        ],
++      } as never,
++    );
++    const timer = options.cancel
++      ? setTimeout(() => next.controller.abort(), 50)
++      : undefined;
++    try {
++      for await (const chunk of next)
++        chunks.push(chunk as unknown as Record<string, unknown>);
++    } finally {
++      if (timer) clearTimeout(timer);
++    }
++    const history = await backend.listConversationMessages(conversation.id, {
++      limit: 100,
++      order: "asc",
++    } as never);
++    const report = {
++      listener: undefined,
++      runtime: process.versions.bun
++        ? `bun ${process.versions.bun}`
++        : `node ${process.version}`,
++      options,
++      root,
++      taskId: "v4-task-input",
++      agentId: agent.id,
++      conversationId: conversation.id,
++      requests,
++      effects,
++      toolReturn: result.status,
++      effect: await readFile(effect, "utf8"),
++      chunks,
++      history: history.getPaginatedItems(),
++    };
++    return report;
++  } finally {
++    globalThis.fetch = realFetch;
++    clearTools();
++    unregisterPiProvider("v4-primary");
++    unregisterPiProvider("v4-reserve");
++    resetLocalBackendMemfsForProcess();
++    if (previousMode === undefined)
++      delete process.env.LETTA_LOCAL_BACKEND_EXPERIMENTAL;
++    else process.env.LETTA_LOCAL_BACKEND_EXPERIMENTAL = previousMode;
++    if (previousStorage === undefined)
++      delete process.env.LETTA_LOCAL_BACKEND_DIR;
++    else process.env.LETTA_LOCAL_BACKEND_DIR = previousStorage;
++    server.closeAllConnections();
++    await new Promise<void>((resolve) => server.close(() => resolve()));
++  }
++}
+diff --git a/src/websocket/listener/native-fallback-v4.test.ts b/src/websocket/listener/native-fallback-v4.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e6b32bb0d9f33e49491b262aeddf401bb9916f2
+--- /dev/null
++++ b/src/websocket/listener/native-fallback-v4.test.ts
+@@ -0,0 +1,55 @@
++import { expect, test } from "bun:test";
++import { existsSync } from "node:fs";
++import { join } from "node:path";
++import { runFallbackV4Scenario } from "@/test-utils/fallback-v4-scenario";
++
++test.each([false, true])(
++  "one listener turn and real Bash append; partial SSE before quota=%s",
++  async (partial) => {
++    const report = await runFallbackV4Scenario({ listener: true, partial });
++    expect(existsSync(join(report.root, "forbidden.txt"))).toBe(false);
++    expect(JSON.stringify(report.listener?.payloads)).not.toContain(
++      "must-not-escape-primary",
++    );
++    expect(
++      report.requests.every((request) => request.credentialMatchedReference),
++    ).toBe(true);
++    expect(report.requests.map((request) => request.model)).toEqual([
++      "primary",
++      "primary",
++      "reserve",
++    ]);
++    expect(report.requests[1]?.messages).toEqual(report.requests[2]?.messages);
++    expect(report.requests.map((request) => request.effort)).toEqual([
++      "high",
++      "high",
++      "high",
++    ]);
++    expect(report.listener?.lifecycle).toBe("idle");
++    const deltas =
++      report.listener?.payloads.map(
++        (payload) => payload.delta as Record<string, unknown> | undefined,
++      ) ?? [];
++    expect(
++      deltas.filter((delta) => delta?.message_type === "client_tool_start"),
++    ).toHaveLength(1);
++    expect(
++      deltas.filter((delta) => delta?.message_type === "client_tool_end"),
++    ).toHaveLength(1);
++    expect(report.effect).toBe("one real tool effect\n");
++    expect(report.effects).toBe(1);
++    for (const type of [
++      "user_message",
++      "approval_request_message",
++      "tool_return_message",
++      "assistant_message",
++    ]) {
++      expect(
++        report.history.filter((message) => message.message_type === type),
++      ).toHaveLength(1);
++    }
++    expect(JSON.stringify(report.listener?.payloads)).toContain(
++      "task-completed-on-reserve",
++    );
++  },
++);

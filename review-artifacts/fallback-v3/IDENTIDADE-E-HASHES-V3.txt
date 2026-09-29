@@ -1,0 +1,30 @@
+CANDIDATA ISOLADA V3 — NÃO APLICADA
+Worktree: /Users/diegoveras/Code/letta-code/.letta/worktrees/native-inference-fallback
+Branch: letta/native-inference-fallback-a0fb3219
+HEAD/base: 1ff4d95eff41633e4fcf37a29a0587216666fe88
+Package/bundle: 0.33.6
+Node: v24.14.0
+Bun: 1.3.11
+
+SHA-256 fontes/testes V3:
+2c02529d73b401d25ea7691d9ad627b2ee76d6dbb4c474d92329ce682ba3c312  src/backend/dev/native-inference-fallback.ts
+4721282f8ccaa2981d17aa411d221a40a4b6eb4ac4a0ccc7c2ab06c41c55de83  src/backend/dev/pi-stream-adapter.ts
+7befce6f90bdf739693b9d7d30044ef889513036263eab444e624939174e2de2  src/backend/dev/pi-stream-options.ts
+cdc4737472c63aa3d598d57528e273c2cf30119145abc15a8597f05176fe6fea  src/backend/local/local-executor-factory.ts
+7adfe0b0a1e67beb6404b8ed0ec85e96534cb66f4beb14462f89f8ed78f291ec  src/backend/local/local-backend.ts
+d731f4e77926bed645843bc0e6ecd022c7bec8674b85b3a4e066a8a3867bc63e  src/backend/native-inference-fallback.test.ts
+8cc42afb2500569a0612a89f219ad14e28deb70086d6cb437ac4b6f9cbcf114f  src/backend/native-inference-fallback-integration.test.ts
+4576bdfdd504f8f18d3a753a69c49c8237c82bf1ebd2825348f223f3848c4cec  src/websocket/listener/native-inference-fallback-integration.test.ts
+
+SHA-256 bundle:
+9dff2a7b4d97f8dc3c150b6e3353ce1114ef8bcb99b74a3350f326b967581716  letta.js
+
+SHA-256 patch/provas:
+ffccf4c03c17a7c6c25df87d9763dad1a98aa2f510cb249a0b9cc6d5ed028c37  native-inference-fallback-v3.patch
+897757dc322d47230fe1e4798853859d02711a85d723d20c4efc7f3c3647a767  ../revisao-prototipo-v2/contraprova-flush.ts (intacta)
+88f8d5ed03f1415074c095316df8f3cb025017084cf5603e482a0c5478973252  node-real-drivers.ts
+e357452d370bcfde3fa90a0c4b7c085a115c8585a5dd65255ff5ebfcf5bf423e  node-real-drivers.mjs
+170acd8322b4ef4812f2aa22052eb907fede76397ed0bd476b9290521b704a75  node-real-drivers.json
+8dfa72d81dbbdd0ffb3f71b828e646931d41996408687ab9ab5767aff7ecd65c  contraprova-flush-reexecutada.json
+
+Índice: V2 já estava staged. Nenhum add/reset/restore/stash foi executado. V3 permanece unstaged por cima (MM/AM nos arquivos tocados), com arquivos não tocados preservados staged. Mtime observado: 2026-09-29 11:13:30.

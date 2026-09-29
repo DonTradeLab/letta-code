@@ -1,0 +1,17 @@
+COMMAND ['bun', '--no-env-file', 'run', 'check']
+EXIT 0
+$ bun run scripts/check.js
+[1/12] circular dependencies .......... PASS  28.1s  (2,169 files)
+[2/12] layer boundaries ............... PASS  0.7s
+[3/12] exported function style ........ PASS  1.0s
+[4/12] filename casing ................ PASS  0.4s
+[5/12] source file size ............... PASS  0.8s
+[6/12] module ownership ............... PASS  6.5s
+[7/12] test mock isolation ............ PASS  0.3s
+[8/12] test coverage .................. PASS  0.4s
+[9/12] skill frontmatter .............. PASS  0.4s
+[10/12] bundled skill scripts .......... PASS  0.4s
+[11/12] biome .......................... PASS  11.5s  (2,107 files)
+[12/12] typescript ..................... PASS  68.1s
+
+✓ 12 checks passed in 118.6s

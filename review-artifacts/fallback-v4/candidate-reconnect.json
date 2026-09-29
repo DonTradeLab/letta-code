@@ -1,0 +1,22 @@
+{
+  "mode": "candidate-reconnect",
+  "commands": [
+    {
+      "label": "candidate-reconnect",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "--no-install",
+        "test",
+        "src/websocket/listener/auth-lifecycle-approval-reconnect.test.ts"
+      ],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-t6mfq0nc",
+      "exit_code": 0,
+      "duration_s": 2.67,
+      "summary": "bun test v1.3.11 (af24e281)\n\nsrc/websocket/listener/auth-lifecycle-approval-reconnect.test.ts:\n(pass) listener approval reconnect timing > service restart reconnect preserves a client tool already executing [242.44ms]\n(pass) listener approval reconnect timing > disconnected requires_approval producer waits for reconnect before executing a generic client tool [176.41ms]\n(pass) listener approval reconnect timing > disconnected client-tool approval waits until listener stop interrupts execution [149.31ms]\n\n 3 pass\n 0 fail\n 35 expect() calls\nRan 3 tests across 1 file. [2.62s]\n"
+    }
+  ],
+  "passed_files": 1,
+  "failed_files": 0
+}

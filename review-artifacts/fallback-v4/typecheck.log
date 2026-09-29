@@ -1,0 +1,3 @@
+COMMAND ['bun', '--no-env-file', 'run', 'typecheck']
+EXIT 0
+$ tsc --noEmit

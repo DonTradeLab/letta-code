@@ -1,0 +1,20 @@
+COMMAND ['bun', '--no-env-file', 'run', 'build']
+EXIT 0
+$ node scripts/postinstall-patches.js && bun run build.js
+[patch] vendor/ink/build/components/App.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/components/App.js
+[patch] vendor/ink/build/hooks/use-input.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/hooks/use-input.js
+[patch] vendor/ink/build/devtools.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/devtools.js
+[patch] vendor/ink/build/log-update.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/log-update.js
+[patch] vendor/ink/build/wrap-text.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/wrap-text.js
+[patch] resettable static output -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/ink.js
+[patch] vendor/ink-text-input/build/index.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink-text-input/build/index.js
+[patch] Ink runtime patched
+[patch] Configured letta to prefer Bun runtime
+📦 Building Letta Code v0.33.6...
+📂 Copied bundled skills to skills/
+📝 Generating type declarations...
+   Output: dist/types/protocol.d.ts
+✅ Build complete!
+   Output: letta.js
+   Output: dist/app-server-client.js and .cjs
+   Size: 22345KB

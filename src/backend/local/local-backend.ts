@@ -19,6 +19,7 @@ import {
   HeadlessBackend,
 } from "@/backend/dev/headless-backend";
 import type { HeadlessTurnExecutor } from "@/backend/dev/headless-turn-executor";
+import type { NativeInferenceFallbackPolicy } from "@/backend/dev/native-inference-fallback";
 import { LocalPiModelsRuntime } from "@/backend/dev/pi-models-runtime";
 import type {
   LocalContextPressure,
@@ -44,6 +45,7 @@ import {
   summarizeLocalMessagesAll,
   summarizeLocalMessagesSlidingWindow,
 } from "./compaction";
+import { effectiveLocalAgent } from "./effective-local-agent";
 import { initialMemoryFilesFromCreateBody } from "./initial-memory";
 import {
   createLocalExecutor,
@@ -83,6 +85,8 @@ export interface LocalBackendOptions {
   memoryDir?: string;
   memfsEnabled?: boolean;
   modelsRuntime?: LocalPiModelsRuntime;
+  /** Prototype-only injected policy; production startup never sets this. */
+  nativeInferenceFallback?: NativeInferenceFallbackPolicy;
 }
 /**
  * Hooks the harness installs (via {@link LocalBackend.setModEventHooks}) so
@@ -225,6 +229,18 @@ export class LocalBackend extends HeadlessBackend {
           localBackendRef.current?.emitLlmStart(info) ?? Promise.resolve(),
         (info) =>
           localBackendRef.current?.emitLlmEnd(info) ?? Promise.resolve(),
+        (input) => {
+          const store = localBackendRef.current?.store;
+          return store
+            ? effectiveLocalAgent(
+                store.retrieveExecutionAgentRecord(
+                  input.conversationId,
+                  input.agentId,
+                ),
+                store.retrieveConversation(input.conversationId, input.agentId),
+              )
+            : undefined;
+        },
       ),
       storeOptions,
       {

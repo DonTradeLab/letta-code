@@ -35,6 +35,8 @@ const LOCAL_CONTEXT_COMPACTION_RESERVE_TOKENS = 16_384;
 const LOCAL_SMALL_CONTEXT_COMPACTION_RESERVE_RATIO = 0.2;
 
 export interface ProviderTurnInput {
+  /** Internal execution signal, never read from the request body. */
+  abortSignal?: AbortSignal;
   conversationId: string;
   agentId: string;
   agent: LocalAgentRecord;
@@ -427,8 +429,8 @@ function identityForContentSegment(
 function createProviderLettaStream(
   events: AsyncIterable<ProviderStreamEvent>,
   contextTokensEstimate?: number,
+  controller = new AbortController(),
 ): Stream<LettaStreamingResponse> {
-  const controller = new AbortController();
   return {
     controller,
     async *[Symbol.asyncIterator]() {
@@ -555,11 +557,16 @@ export class ProviderTurnExecutor implements HeadlessTurnExecutor {
   ) {}
 
   async execute(input: HeadlessTurnExecutorInput) {
-    const providerInput = buildProviderTurnInput(input);
+    const controller = new AbortController();
+    const providerInput = {
+      ...buildProviderTurnInput(input),
+      abortSignal: controller.signal,
+    };
     const events = await this.adapter.stream(providerInput);
     return createProviderLettaStream(
       events,
       estimateProviderContextTokens(providerInput),
+      controller,
     );
   }
 }

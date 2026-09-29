@@ -1,0 +1,772 @@
+{
+  "runtime": "node v26.0.0",
+  "options": {
+    "listener": true
+  },
+  "root": "/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl",
+  "taskId": "v4-task-input",
+  "agentId": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+  "conversationId": "local-conv-1",
+  "requests": [
+    {
+      "model": "primary",
+      "messages": [
+        {
+          "role": "developer",
+          "content": "\n\n<memory_metadata>\n- AGENT_ID: agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460\n- CONVERSATION_ID: local-conv-1\n- System prompt last recompiled: 2026-09-29 07:28:23 PM UTC+0000\n- 0 previous messages between you and the user are stored in recall memory\n</memory_metadata>\n\n<available_skills>\n- `adding-models`: Guide for adding new LLM models to Letta Code. Use when the user wants to add support for a new model, needs to know valid model handles, or wants to update model-specific compatibility behavior. Covers runtime catalog sources, CI test matrices, and handle validation.\n- `capturing-tui-visual-proof`: Captures reviewable before-and-after visual proof from the real Letta Code Ink TUI. Use when a Letta Code PR changes interactive CLI rendering or behavior and needs terminal screenshots or GIFs in its PR body.\n</available_skills>"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 04:28 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nM src/backend/dev/provider-turn-executor.ts\n M src/backend/local/local-backend.ts\n M src/backend/local/local-executor-factory.ts\n?? review-artifacts/fallback-v4/\n?? src/backend/local/native-fallback-config.test.ts\n?? src/backend/local/native-fallback-config.ts\n?? src/backend/local/native-fallback-policy.test.ts\n?? src/backend/local/native-fallback-policy.ts\n?? src/test-utils/fallback-v4-listener.ts\n?? src/test-utils/fallback-v4-scenario.ts\n?? src/websocket/listener/native-fallback-v4.test.ts\n```\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/backend/memfs/agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 4:28:23 PM (just now)\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "write once then answer"
+            }
+          ]
+        }
+      ],
+      "effort": "high"
+    },
+    {
+      "model": "primary",
+      "messages": [
+        {
+          "role": "developer",
+          "content": "\n\n<memory_metadata>\n- AGENT_ID: agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460\n- CONVERSATION_ID: local-conv-1\n- System prompt last recompiled: 2026-09-29 07:28:23 PM UTC+0000\n- 0 previous messages between you and the user are stored in recall memory\n</memory_metadata>\n\n<available_skills>\n- `adding-models`: Guide for adding new LLM models to Letta Code. Use when the user wants to add support for a new model, needs to know valid model handles, or wants to update model-specific compatibility behavior. Covers runtime catalog sources, CI test matrices, and handle validation.\n- `capturing-tui-visual-proof`: Captures reviewable before-and-after visual proof from the real Letta Code Ink TUI. Use when a Letta Code PR changes interactive CLI rendering or behavior and needs terminal screenshots or GIFs in its PR body.\n</available_skills>"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 04:28 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nM src/backend/dev/provider-turn-executor.ts\n M src/backend/local/local-backend.ts\n M src/backend/local/local-executor-factory.ts\n?? review-artifacts/fallback-v4/\n?? src/backend/local/native-fallback-config.test.ts\n?? src/backend/local/native-fallback-config.ts\n?? src/backend/local/native-fallback-policy.test.ts\n?? src/backend/local/native-fallback-policy.ts\n?? src/test-utils/fallback-v4-listener.ts\n?? src/test-utils/fallback-v4-scenario.ts\n?? src/websocket/listener/native-fallback-v4.test.ts\n```\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/backend/memfs/agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 4:28:23 PM (just now)\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "write once then answer"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "write-once",
+              "type": "function",
+              "function": {
+                "name": "Write",
+                "arguments": "{\"file_path\":\"/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt\",\"content\":\"one real tool effect\\n\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Successfully wrote 21 characters to /Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt",
+          "tool_call_id": "write-once"
+        }
+      ],
+      "effort": "high"
+    },
+    {
+      "model": "reserve",
+      "messages": [
+        {
+          "role": "developer",
+          "content": "\n\n<memory_metadata>\n- AGENT_ID: agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460\n- CONVERSATION_ID: local-conv-1\n- System prompt last recompiled: 2026-09-29 07:28:23 PM UTC+0000\n- 0 previous messages between you and the user are stored in recall memory\n</memory_metadata>\n\n<available_skills>\n- `adding-models`: Guide for adding new LLM models to Letta Code. Use when the user wants to add support for a new model, needs to know valid model handles, or wants to update model-specific compatibility behavior. Covers runtime catalog sources, CI test matrices, and handle validation.\n- `capturing-tui-visual-proof`: Captures reviewable before-and-after visual proof from the real Letta Code Ink TUI. Use when a Letta Code PR changes interactive CLI rendering or behavior and needs terminal screenshots or GIFs in its PR body.\n</available_skills>"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 04:28 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nM src/backend/dev/provider-turn-executor.ts\n M src/backend/local/local-backend.ts\n M src/backend/local/local-executor-factory.ts\n?? review-artifacts/fallback-v4/\n?? src/backend/local/native-fallback-config.test.ts\n?? src/backend/local/native-fallback-config.ts\n?? src/backend/local/native-fallback-policy.test.ts\n?? src/backend/local/native-fallback-policy.ts\n?? src/test-utils/fallback-v4-listener.ts\n?? src/test-utils/fallback-v4-scenario.ts\n?? src/websocket/listener/native-fallback-v4.test.ts\n```\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/backend/memfs/agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 4:28:23 PM (just now)\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "write once then answer"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "write-once",
+              "type": "function",
+              "function": {
+                "name": "Write",
+                "arguments": "{\"file_path\":\"/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt\",\"content\":\"one real tool effect\\n\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Successfully wrote 21 characters to /Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt",
+          "tool_call_id": "write-once"
+        }
+      ],
+      "effort": "high"
+    }
+  ],
+  "effects": 1,
+  "toolReturn": "listener-executed",
+  "effect": "one real tool effect\n",
+  "chunks": [
+    {
+      "id": "ui-msg-1",
+      "date": "2026-09-29T19:28:24.609Z",
+      "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+      "conversation_id": "local-conv-1",
+      "message_type": "user_message",
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 04:28 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nM src/backend/dev/provider-turn-executor.ts\n M src/backend/local/local-backend.ts\n M src/backend/local/local-executor-factory.ts\n?? review-artifacts/fallback-v4/\n?? src/backend/local/native-fallback-config.test.ts\n?? src/backend/local/native-fallback-config.ts\n?? src/backend/local/native-fallback-policy.test.ts\n?? src/backend/local/native-fallback-policy.ts\n?? src/test-utils/fallback-v4-listener.ts\n?? src/test-utils/fallback-v4-scenario.ts\n?? src/websocket/listener/native-fallback-v4.test.ts\n```\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/backend/memfs/agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 4:28:23 PM (just now)\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "write once then answer"
+        }
+      ],
+      "otid": "v4-task-input"
+    },
+    {
+      "id": "ui-msg-2:tool:write-once:request",
+      "date": "2026-09-29T19:28:24.716Z",
+      "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+      "conversation_id": "local-conv-1",
+      "message_type": "approval_request_message",
+      "tool_call": {
+        "tool_call_id": "write-once",
+        "name": "Write",
+        "arguments": "{\"file_path\":\"/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt\",\"content\":\"one real tool effect\\n\"}"
+      }
+    },
+    {
+      "id": "ui-msg-3",
+      "date": "2026-09-29T19:28:24.748Z",
+      "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+      "conversation_id": "local-conv-1",
+      "message_type": "tool_return_message",
+      "tool_call_id": "write-once",
+      "status": "success",
+      "tool_return": "Successfully wrote 21 characters to /Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt"
+    },
+    {
+      "id": "ui-msg-4",
+      "date": "2026-09-29T19:28:24.806Z",
+      "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+      "conversation_id": "local-conv-1",
+      "message_type": "assistant_message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "task-completed-on-reserve"
+        }
+      ]
+    }
+  ],
+  "history": [
+    {
+      "id": "ui-msg-1",
+      "date": "2026-09-29T19:28:24.609Z",
+      "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+      "conversation_id": "local-conv-1",
+      "message_type": "user_message",
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 04:28 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nM src/backend/dev/provider-turn-executor.ts\n M src/backend/local/local-backend.ts\n M src/backend/local/local-executor-factory.ts\n?? review-artifacts/fallback-v4/\n?? src/backend/local/native-fallback-config.test.ts\n?? src/backend/local/native-fallback-config.ts\n?? src/backend/local/native-fallback-policy.test.ts\n?? src/backend/local/native-fallback-policy.ts\n?? src/test-utils/fallback-v4-listener.ts\n?? src/test-utils/fallback-v4-scenario.ts\n?? src/websocket/listener/native-fallback-v4.test.ts\n```\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/backend/memfs/agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 4:28:23 PM (just now)\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "write once then answer"
+        }
+      ],
+      "otid": "v4-task-input"
+    },
+    {
+      "id": "ui-msg-2:tool:write-once:request",
+      "date": "2026-09-29T19:28:24.716Z",
+      "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+      "conversation_id": "local-conv-1",
+      "message_type": "approval_request_message",
+      "tool_call": {
+        "tool_call_id": "write-once",
+        "name": "Write",
+        "arguments": "{\"file_path\":\"/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt\",\"content\":\"one real tool effect\\n\"}"
+      }
+    },
+    {
+      "id": "ui-msg-3",
+      "date": "2026-09-29T19:28:24.748Z",
+      "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+      "conversation_id": "local-conv-1",
+      "message_type": "tool_return_message",
+      "tool_call_id": "write-once",
+      "status": "success",
+      "tool_return": "Successfully wrote 21 characters to /Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt"
+    },
+    {
+      "id": "ui-msg-4",
+      "date": "2026-09-29T19:28:24.806Z",
+      "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+      "conversation_id": "local-conv-1",
+      "message_type": "assistant_message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "task-completed-on-reserve"
+        }
+      ]
+    }
+  ],
+  "listener": {
+    "payloads": [
+      {
+        "type": "update_loop_status",
+        "loop_status": {
+          "status": "PROCESSING_API_RESPONSE",
+          "active_run_ids": ["local-run-1"],
+          "client_message_ids_by_run_id": {
+            "local-run-1": ["v4-task-input"]
+          },
+          "executing_tool_call_ids": []
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 1,
+        "emitted_at": "2026-09-29T19:28:24.713Z",
+        "idempotency_key": "update_loop_status:1:8233949a-7251-4fd2-947c-209c904b1a6d"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-1",
+          "date": "2026-09-29T19:28:24.711Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 1,
+            "model": "v4-primary/primary",
+            "provider": "v4-primary",
+            "effort": "high",
+            "outcome": "started"
+          },
+          "run_id": "local-run-1",
+          "seq_id": 1,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 2,
+        "emitted_at": "2026-09-29T19:28:24.714Z",
+        "idempotency_key": "stream_delta:2:cad9a159-d325-403b-af0e-b0f198225630"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-2",
+          "date": "2026-09-29T19:28:24.714Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 1,
+            "model": "v4-primary/primary",
+            "provider": "v4-primary",
+            "effort": "high",
+            "outcome": "success"
+          },
+          "run_id": "local-run-1",
+          "seq_id": 2,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 3,
+        "emitted_at": "2026-09-29T19:28:24.715Z",
+        "idempotency_key": "stream_delta:3:d034c72e-b690-453b-bd20-887de93291db"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-3",
+          "date": "2026-09-29T19:28:24.716Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "approval_request_message",
+          "tool_call": {
+            "tool_call_id": "write-once",
+            "name": "Write",
+            "arguments": "{\"file_path\":\"/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt\",\"content\":\"one real tool effect\\n\"}"
+          },
+          "run_id": "local-run-1",
+          "seq_id": 3,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 4,
+        "emitted_at": "2026-09-29T19:28:24.717Z",
+        "idempotency_key": "stream_delta:4:eb55a8d8-70d1-4896-92b6-966c376bec9c"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-4",
+          "date": "2026-09-29T19:28:24.719Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "usage_statistics",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0,
+          "context_tokens": 18650,
+          "run_id": "local-run-1",
+          "seq_id": 4,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 5,
+        "emitted_at": "2026-09-29T19:28:24.719Z",
+        "idempotency_key": "stream_delta:5:22934fd6-770a-42e3-b486-0151fd7cc445"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "message_type": "stop_reason",
+          "stop_reason": "requires_approval",
+          "run_id": "local-run-1",
+          "seq_id": 5,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 6,
+        "emitted_at": "2026-09-29T19:28:24.720Z",
+        "idempotency_key": "stream_delta:6:b0fc0bdb-9b80-4b9e-98ad-13a06cc7e1a7"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "lifecycle-274bca9b-6713-4f03-abfe-d25d4cf18dcb",
+          "date": "2026-09-29T19:28:24.729Z",
+          "message_type": "approval_classification_end",
+          "run_id": "local-run-1",
+          "auto_allowed_tool_call_ids": ["write-once"],
+          "auto_denied_tool_call_ids": [],
+          "user_input_tool_call_ids": []
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 7,
+        "emitted_at": "2026-09-29T19:28:24.729Z",
+        "idempotency_key": "stream_delta:7:583cec23-6b41-445f-8403-57a1130e5163"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-3",
+          "date": "2026-09-29T19:28:24.730Z",
+          "message_type": "client_tool_start",
+          "run_id": "local-run-1",
+          "tool_call_id": "write-once",
+          "tool_name": "Write",
+          "tool_args": "{\"file_path\":\"/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt\",\"content\":\"one real tool effect\\n\"}"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 8,
+        "emitted_at": "2026-09-29T19:28:24.730Z",
+        "idempotency_key": "stream_delta:8:15cad473-de44-4c36-892c-76f7ababf18b"
+      },
+      {
+        "type": "file_ops",
+        "path": "/Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt",
+        "cg_entries": [],
+        "ops": [],
+        "source": "agent",
+        "document_content": "one real tool effect\n",
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 9,
+        "emitted_at": "2026-09-29T19:28:24.741Z",
+        "idempotency_key": "file_ops:9:adf13b36-691d-4f1f-842c-719e0e3eca4d"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-3",
+          "date": "2026-09-29T19:28:24.743Z",
+          "message_type": "client_tool_end",
+          "run_id": "local-run-1",
+          "tool_call_id": "write-once",
+          "status": "success"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 10,
+        "emitted_at": "2026-09-29T19:28:24.744Z",
+        "idempotency_key": "stream_delta:10:da09fc8c-a598-416a-a9cc-1ef959f0d7fe"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "type": "message",
+          "message_type": "tool_return_message",
+          "id": "synthetic-tool-return-0d022888-a58a-41c0-b14f-9afe66b12ff9",
+          "date": "2026-09-29T19:28:24.744Z",
+          "run_id": "local-run-1",
+          "status": "success",
+          "tool_call_id": "write-once",
+          "tool_return": "Successfully wrote 21 characters to /Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt",
+          "tool_returns": [
+            {
+              "tool_call_id": "write-once",
+              "status": "success",
+              "tool_return": "Successfully wrote 21 characters to /Users/diegoveras/.letta/tmp/fallback-v4-runtime/tmp/fallback-v4-W0IQVl/effect.txt"
+            }
+          ]
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 11,
+        "emitted_at": "2026-09-29T19:28:24.744Z",
+        "idempotency_key": "stream_delta:11:c75a8ce9-306b-4f6c-a01a-49c425683dff"
+      },
+      {
+        "type": "update_loop_status",
+        "loop_status": {
+          "status": "PROCESSING_API_RESPONSE",
+          "active_run_ids": ["local-run-2"],
+          "client_message_ids_by_run_id": {
+            "local-run-1": ["v4-task-input"],
+            "local-run-2": ["v4-task-input"]
+          },
+          "executing_tool_call_ids": []
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 12,
+        "emitted_at": "2026-09-29T19:28:24.801Z",
+        "idempotency_key": "update_loop_status:12:68833a55-6f6f-43f1-adab-405642a8b996"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-5",
+          "date": "2026-09-29T19:28:24.801Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 1,
+            "model": "v4-primary/primary",
+            "provider": "v4-primary",
+            "effort": "high",
+            "outcome": "started"
+          },
+          "run_id": "local-run-2",
+          "seq_id": 1,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 13,
+        "emitted_at": "2026-09-29T19:28:24.801Z",
+        "idempotency_key": "stream_delta:13:66413314-0cb3-4013-9b7b-c337720a4b9b"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-6",
+          "date": "2026-09-29T19:28:24.801Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 1,
+            "model": "v4-primary/primary",
+            "provider": "v4-primary",
+            "effort": "high",
+            "outcome": "quota",
+            "status": 429,
+            "code": "1310"
+          },
+          "run_id": "local-run-2",
+          "seq_id": 2,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 14,
+        "emitted_at": "2026-09-29T19:28:24.802Z",
+        "idempotency_key": "stream_delta:14:443ad407-7e58-4f4f-a276-70b154251026"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-7",
+          "date": "2026-09-29T19:28:24.802Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 2,
+            "model": "v4-reserve/reserve",
+            "provider": "v4-reserve",
+            "effort": "high",
+            "outcome": "started"
+          },
+          "run_id": "local-run-2",
+          "seq_id": 3,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 15,
+        "emitted_at": "2026-09-29T19:28:24.802Z",
+        "idempotency_key": "stream_delta:15:746b2768-7966-4744-86da-e6ee7e30c765"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-8",
+          "date": "2026-09-29T19:28:24.803Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 2,
+            "model": "v4-reserve/reserve",
+            "provider": "v4-reserve",
+            "effort": "high",
+            "outcome": "success"
+          },
+          "run_id": "local-run-2",
+          "seq_id": 4,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 16,
+        "emitted_at": "2026-09-29T19:28:24.803Z",
+        "idempotency_key": "stream_delta:16:9a9c9b38-22ce-44c3-8218-bf4dcc2e4073"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "ui-msg-4",
+          "date": "2026-09-29T19:28:24.805Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "assistant_message",
+          "content": [
+            {
+              "type": "text",
+              "text": "task-completed-on-reserve"
+            }
+          ],
+          "run_id": "local-run-2",
+          "seq_id": 5,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 17,
+        "emitted_at": "2026-09-29T19:28:24.808Z",
+        "idempotency_key": "stream_delta:17:b2a113a5-5778-48de-bd63-1cbdd5bfef81"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-10",
+          "date": "2026-09-29T19:28:24.814Z",
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1",
+          "message_type": "usage_statistics",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0,
+          "context_tokens": 18715,
+          "run_id": "local-run-2",
+          "seq_id": 6,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 18,
+        "emitted_at": "2026-09-29T19:28:24.814Z",
+        "idempotency_key": "stream_delta:18:f088f0c5-17c9-4fd6-80d0-7dadff5c91e8"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "message_type": "stop_reason",
+          "stop_reason": "end_turn",
+          "run_id": "local-run-2",
+          "seq_id": 7,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 19,
+        "emitted_at": "2026-09-29T19:28:24.816Z",
+        "idempotency_key": "stream_delta:19:e7c745dd-a106-4cfc-8a04-b731f4f7e5e3"
+      },
+      {
+        "type": "turn_finished",
+        "turn_id": "v4-native-task",
+        "stop_reason": "end_turn",
+        "run_id": "local-run-2",
+        "runtime": {
+          "agent_id": "agent-local-c6edbc5e-9bbe-4702-a51e-b9e9a4365460",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 20,
+        "emitted_at": "2026-09-29T19:28:24.851Z",
+        "idempotency_key": "turn_finished:20:9e1d92b6-90b9-45aa-b17e-adfb8e9ee712"
+      }
+    ],
+    "lifecycle": "idle"
+  }
+}

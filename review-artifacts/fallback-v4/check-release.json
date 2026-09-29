@@ -1,0 +1,16 @@
+{
+  "mode": "check-release",
+  "commands": [
+    {
+      "label": "check-release",
+      "command": ["bun", "--no-env-file", "run", "check"],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-wumrw_pp",
+      "exit_code": 0,
+      "duration_s": 118.64,
+      "summary": "$ bun run scripts/check.js\n[1/12] circular dependencies .......... PASS  28.1s  (2,169 files)\n[2/12] layer boundaries ............... PASS  0.7s\n[3/12] exported function style ........ PASS  1.0s\n[4/12] filename casing ................ PASS  0.4s\n[5/12] source file size ............... PASS  0.8s\n[6/12] module ownership ............... PASS  6.5s\n[7/12] test mock isolation ............ PASS  0.3s\n[8/12] test coverage .................. PASS  0.4s\n[9/12] skill frontmatter .............. PASS  0.4s\n[10/12] bundled skill scripts .......... PASS  0.4s\n[11/12] biome .......................... PASS  11.5s  (2,107 files)\n[12/12] typescript ..................... PASS  68.1s\n\n\u2713 12 checks passed in 118.6s\n"
+    }
+  ],
+  "passed_files": 1,
+  "failed_files": 0
+}

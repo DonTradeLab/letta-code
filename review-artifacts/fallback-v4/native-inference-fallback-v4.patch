@@ -1,0 +1,3837 @@
+diff --git a/src/backend/dev/fake-headless-backend.ts b/src/backend/dev/fake-headless-backend.ts
+index 423ff66401d9fd9b756a2399494f5cba02050755..72e18923d26d128376f67641a1b7b8d7f7f0a457 100644
+--- a/src/backend/dev/fake-headless-backend.ts
++++ b/src/backend/dev/fake-headless-backend.ts
+@@ -17,15 +17,14 @@ import type {
+   ConversationResumeTailOptions,
+   RunMessageStreamBody,
+ } from "@/backend/backend";
++import { effectiveLocalAgent } from "@/backend/local/effective-local-agent";
+ import {
+   LocalBackendNotFoundError,
+   LocalStore,
+   type LocalStoreOptions,
+ } from "@/backend/local/local-store";
+ import { isLocalStateChunkOnly } from "@/backend/local/local-stream-chunks";
+-import type { LocalAgentRecord } from "@/backend/local/local-types";
+ import { TURN_DID_NOT_COMPLETE } from "@/constants";
+-import { isRecord } from "@/utils/type-guards";
+ import {
+   DeterministicPongExecutor,
+   type HeadlessTurnExecutor,
+@@ -129,29 +128,6 @@ function localStopReasonChunk(stopReason: string): LettaStreamingResponse {
+   } as LettaStreamingResponse;
+ }
+ 
+-function effectiveAgentForConversation(
+-  agent: LocalAgentRecord,
+-  conversation: Conversation,
+-): LocalAgentRecord {
+-  const conversationRecord = conversation as unknown as Record<string, unknown>;
+-  const conversationModelSettings = isRecord(conversationRecord.model_settings)
+-    ? conversationRecord.model_settings
+-    : undefined;
+-  return {
+-    ...agent,
+-    ...(typeof conversationRecord.model === "string"
+-      ? { model: conversationRecord.model }
+-      : {}),
+-    model_settings: {
+-      ...agent.model_settings,
+-      ...(conversationModelSettings ?? {}),
+-      ...(typeof conversationRecord.context_window_limit === "number"
+-        ? { context_window_limit: conversationRecord.context_window_limit }
+-        : {}),
+-    },
+-  };
+-}
+-
+ function createReplayStream(
+   chunks: LettaStreamingResponse[],
+ ): Stream<LettaStreamingResponse> {
+@@ -488,7 +464,7 @@ export class HeadlessBackend implements Backend {
+       turnInput.conversationId,
+       turnInput.agentId,
+     );
+-    const agent = effectiveAgentForConversation(
++    const agent = effectiveLocalAgent(
+       this.store.retrieveExecutionAgentRecord(
+         turnInput.conversationId,
+         turnInput.agentId,
+diff --git a/src/backend/dev/native-inference-fallback.ts b/src/backend/dev/native-inference-fallback.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e5abecefb20679deba59d6c2273187787c8695d
+--- /dev/null
++++ b/src/backend/dev/native-inference-fallback.ts
+@@ -0,0 +1,248 @@
++import { isRecord } from "@/utils/type-guards";
++import type {
++  ProviderStreamEvent,
++  ProviderTurnInput,
++} from "./provider-turn-executor";
++
++export type NativeInferenceFailureCategory =
++  | "quota_exhausted"
++  | "transient_provider"
++  | "authentication"
++  | "permission"
++  | "other";
++
++export interface NativeInferenceFailure {
++  category: NativeInferenceFailureCategory;
++  provider?: string;
++  status?: number;
++  code?: string;
++}
++
++export interface NativeInferenceProviderErrorEnvelope {
++  source: "pi_provider_error";
++  provider?: string;
++  status: number;
++  code?: string;
++}
++
++export interface NativeInferenceFallbackDestination {
++  model: string;
++  modelSettings: Record<string, unknown>;
++}
++
++export interface NativeInferenceAttemptContext {
++  input: ProviderTurnInput;
++  attempt: number;
++  model: string;
++}
++
++export interface NativeInferenceModelAttempt {
++  attempt: number;
++  model: string;
++  provider?: string;
++  effort?: string;
++  outcome: "started" | "quota" | "success" | "error" | "invalidated";
++  status?: number;
++  code?: string;
++}
++
++/**
++ * Policy seam. Local production startup derives a scoped policy from the
++ * validated native-inference-fallback.json configuration (OFF by default).
++ * The caller owns identity/lineage eligibility, approved finite destinations,
++ * credential/capability checks, and the live owner/manual-selection revision.
++ * Returning null fails closed. The adapter never mutates the stored model.
++ */
++export interface NativeInferenceFallbackPolicy {
++  resolveDestination(
++    context: NativeInferenceAttemptContext,
++    failure: NativeInferenceFailure,
++    attemptedModels: readonly string[],
++  ):
++    | NativeInferenceFallbackDestination
++    | null
++    | Promise<NativeInferenceFallbackDestination | null>;
++  isAttemptCurrent?(
++    context: NativeInferenceAttemptContext,
++  ): boolean | Promise<boolean>;
++  onModelAttempt?(attempt: NativeInferenceModelAttempt): void | Promise<void>;
++  maxBufferedEvents?: number;
++  maxBufferedBytes?: number;
++}
++
++export const DEFAULT_NATIVE_INFERENCE_BUFFER_EVENTS = 2_048;
++export const DEFAULT_NATIVE_INFERENCE_BUFFER_BYTES = 8 * 1024 * 1024;
++
++export class NativeInferenceAttemptInvalidatedError extends Error {
++  constructor() {
++    super(
++      "Native inference attempt was invalidated by cancellation, ownership loss, or a manual model change",
++    );
++    this.name = "NativeInferenceAttemptInvalidatedError";
++  }
++}
++
++export class NativeInferenceBufferLimitError extends Error {
++  constructor(readonly limit: "events" | "bytes") {
++    super(
++      `Native inference fallback ${limit} buffer limit exceeded before provider completion`,
++    );
++    this.name = "NativeInferenceBufferLimitError";
++  }
++}
++
++function numberValue(value: unknown): number | undefined {
++  if (typeof value === "number" && Number.isFinite(value)) return value;
++  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
++  return undefined;
++}
++
++function stringValue(value: unknown): string | undefined {
++  if (typeof value === "string" && value.length > 0) return value;
++  if (typeof value === "number" && Number.isFinite(value)) return String(value);
++  return undefined;
++}
++
++/**
++ * Recovers fields only from the complete HTTP envelope emitted by pi-ai at its
++ * typed provider-error boundary. Callers must not pass transcript or tool text.
++ */
++export function parseNativeInferenceProviderErrorEnvelope(
++  provider: string | undefined,
++  errorMessage: string | undefined,
++): NativeInferenceProviderErrorEnvelope | undefined {
++  if (!errorMessage) return undefined;
++  const match = /^([45]\d{2}): (\{.*\})$/s.exec(errorMessage);
++  if (!match) return undefined;
++  const status = Number(match[1]);
++  let body: unknown;
++  try {
++    body = JSON.parse(match[2] ?? "");
++  } catch {
++    return undefined;
++  }
++  if (!isRecord(body)) return undefined;
++  const code = stringValue(body.code);
++  return {
++    source: "pi_provider_error",
++    provider,
++    status,
++    ...(code ? { code } : {}),
++  };
++}
++
++function structuredRecords(error: unknown): Record<string, unknown>[] {
++  const records: Record<string, unknown>[] = [];
++  const queue: Array<{ value: unknown; depth: number }> = [
++    { value: error, depth: 0 },
++  ];
++  const seen = new Set<unknown>();
++  while (queue.length > 0) {
++    const item = queue.shift();
++    if (
++      !item ||
++      item.depth > 4 ||
++      !isRecord(item.value) ||
++      seen.has(item.value)
++    ) {
++      continue;
++    }
++    seen.add(item.value);
++    records.push(item.value);
++    for (const key of [
++      "providerFailure",
++      "assistant",
++      "diagnostics",
++      "details",
++      "data",
++      "body",
++      "error",
++      "cause",
++    ]) {
++      const child = item.value[key];
++      if (Array.isArray(child)) {
++        for (const entry of child)
++          queue.push({ value: entry, depth: item.depth + 1 });
++      } else {
++        queue.push({ value: child, depth: item.depth + 1 });
++      }
++    }
++  }
++  return records;
++}
++
++/** Classifies only structured data attached to the actual provider failure. */
++export function classifyNativeInferenceFailure(
++  error: unknown,
++): NativeInferenceFailure {
++  const records = structuredRecords(error);
++  const status = records
++    .flatMap((record) => [record.statusCode, record.status, record.httpStatus])
++    .map(numberValue)
++    .find((value): value is number => value !== undefined);
++  const code = records
++    .flatMap((record) => [record.code, record.errorCode])
++    .map(stringValue)
++    .find((value): value is string => value !== undefined);
++  const provider = records
++    .flatMap((record) => [record.provider, record.providerId])
++    .map(stringValue)
++    .find((value): value is string => value !== undefined);
++
++  if (status === 429 && code === "1310") {
++    return { category: "quota_exhausted", provider, status, code };
++  }
++  if (status === 401)
++    return { category: "authentication", provider, status, code };
++  if (status === 403) return { category: "permission", provider, status, code };
++  if (code === "tool_failure" || code === "tool_error") {
++    return { category: "other", provider, status, code };
++  }
++  if (status === 429 || (status !== undefined && status >= 500)) {
++    return { category: "transient_provider", provider, status, code };
++  }
++  return { category: "other", provider, status, code };
++}
++
++function serializedEventBytes(event: ProviderStreamEvent): number {
++  try {
++    return Buffer.byteLength(JSON.stringify(event), "utf8");
++  } catch {
++    return Number.POSITIVE_INFINITY;
++  }
++}
++
++export function appendNativeInferenceBufferedEvent(
++  events: ProviderStreamEvent[],
++  event: ProviderStreamEvent,
++  currentBytes: number,
++  policy: NativeInferenceFallbackPolicy,
++): number {
++  const maxEvents =
++    policy.maxBufferedEvents ?? DEFAULT_NATIVE_INFERENCE_BUFFER_EVENTS;
++  const maxBytes =
++    policy.maxBufferedBytes ?? DEFAULT_NATIVE_INFERENCE_BUFFER_BYTES;
++  if (events.length + 1 > maxEvents) {
++    throw new NativeInferenceBufferLimitError("events");
++  }
++  const nextBytes = currentBytes + serializedEventBytes(event);
++  if (nextBytes > maxBytes) {
++    throw new NativeInferenceBufferLimitError("bytes");
++  }
++  events.push(event);
++  return nextBytes;
++}
++
++export function fallbackInputForDestination(
++  input: ProviderTurnInput,
++  destination: NativeInferenceFallbackDestination,
++): ProviderTurnInput {
++  return {
++    ...input,
++    agent: {
++      ...input.agent,
++      model: destination.model,
++      model_settings: { ...destination.modelSettings },
++    },
++  };
++}
+diff --git a/src/backend/dev/pi-stream-adapter.ts b/src/backend/dev/pi-stream-adapter.ts
+index 334c67bfc397fc63bd4cd4bd217842e53daac4a5..4ebac9fad811e9c144997f297378c4e3f0a2419e 100644
+--- a/src/backend/dev/pi-stream-adapter.ts
++++ b/src/backend/dev/pi-stream-adapter.ts
+@@ -28,6 +28,16 @@ import {
+   localProviderRetryMessage,
+   normalizeLocalProviderError,
+ } from "./local-provider-errors";
++import {
++  appendNativeInferenceBufferedEvent,
++  classifyNativeInferenceFailure,
++  fallbackInputForDestination,
++  NativeInferenceAttemptInvalidatedError,
++  type NativeInferenceFallbackPolicy,
++  type NativeInferenceModelAttempt,
++  type NativeInferenceProviderErrorEnvelope,
++  parseNativeInferenceProviderErrorEnvelope,
++} from "./native-inference-fallback";
+ import {
+   elideImagePayloadsForProviderRetry,
+   isOversizedPayloadTransportFailure,
+@@ -39,6 +49,15 @@ import {
+ } from "./pi-model-factory";
+ import { LocalPiModelsRuntime } from "./pi-models-runtime";
+ import { resolvePiRequestHeaders } from "./pi-request-headers";
++import {
++  anthropicEffortForSettings,
++  boolValue,
++  maxTokensForSettings,
++  serviceTierForSettings,
++  sleepWithAbort,
++  withAnthropicOutputEffort,
++  withOpenAIResponsesReplayIdSanitizer,
++} from "./pi-stream-options";
+ import { isPiModelOutputEvent } from "./pi-stream-output";
+ import type {
+   LlmEndErrorInfo,
+@@ -109,46 +128,31 @@ export interface PiStreamAdapterOptions {
+   ) => Promise<LocalCompactionResult | null>;
+   onLlmStart?: (info: LlmStartInfo) => void | Promise<void>;
+   onLlmEnd?: (info: LlmEndInfo) => void | Promise<void>;
++  /** Prototype-only. Production leaves this unset. */
++  nativeInferenceFallback?: NativeInferenceFallbackPolicy;
+ }
+ 
+ class PiProviderError extends Error {
+   readonly assistant: AssistantMessage;
+   readonly statusCode?: number;
++  readonly providerFailure?: NativeInferenceProviderErrorEnvelope;
+ 
+   constructor(assistant: AssistantMessage) {
+     super(assistant.errorMessage ?? "Unknown local provider error");
+     this.name = "PiProviderError";
+     this.assistant = assistant;
+-    const status = assistant.diagnostics
++    this.providerFailure = parseNativeInferenceProviderErrorEnvelope(
++      assistant.provider,
++      assistant.errorMessage,
++    );
++    const diagnosticStatus = assistant.diagnostics
+       ?.map(
+         (diagnostic) =>
+           diagnostic.details?.statusCode ?? diagnostic.details?.status,
+       )
+       .find((value): value is number => typeof value === "number");
+-    this.statusCode = status;
+-  }
+-}
+-
+-async function sleepWithAbort(
+-  delayMs: number,
+-  abortSignal: AbortSignal | undefined,
+-): Promise<void> {
+-  if (delayMs <= 0) return;
+-  if (abortSignal?.aborted) {
+-    throw new DOMException("Aborted", "AbortError");
++    this.statusCode = diagnosticStatus ?? this.providerFailure?.status;
+   }
+-
+-  await new Promise<void>((resolve, reject) => {
+-    const timeout = setTimeout(() => {
+-      abortSignal?.removeEventListener("abort", onAbort);
+-      resolve();
+-    }, delayMs);
+-    const onAbort = () => {
+-      clearTimeout(timeout);
+-      reject(new DOMException("Aborted", "AbortError"));
+-    };
+-    abortSignal?.addEventListener("abort", onAbort, { once: true });
+-  });
+ }
+ 
+ function isClientTool(value: unknown): value is ClientTool {
+@@ -280,75 +284,6 @@ function toPiMessages(messages: readonly LocalMessage[]): Message[] {
+   return normalized;
+ }
+ 
+-function stripOpenAIResponsesReplayItemIds(
+-  payload: unknown,
+-): unknown | undefined {
+-  if (!isRecord(payload) || !Array.isArray(payload.input)) return undefined;
+-
+-  let changed = false;
+-  const input = payload.input.map((item) => {
+-    if (!isRecord(item) || !("id" in item)) return item;
+-    const type = item.type;
+-    if (
+-      type !== "reasoning" &&
+-      type !== "message" &&
+-      type !== "function_call"
+-    ) {
+-      return item;
+-    }
+-
+-    changed = true;
+-    const next = { ...item };
+-    delete next.id;
+-    return next;
+-  });
+-
+-  return changed ? { ...payload, input } : undefined;
+-}
+-
+-function withOpenAIResponsesReplayIdSanitizer(
+-  existing: SimpleStreamOptions["onPayload"] | undefined,
+-): SimpleStreamOptions["onPayload"] {
+-  return async (payload, model) => {
+-    let next = payload;
+-    let upstreamChanged = false;
+-    const upstream = await existing?.(payload, model);
+-    if (upstream !== undefined) {
+-      next = upstream;
+-      upstreamChanged = true;
+-    }
+-
+-    const sanitized = stripOpenAIResponsesReplayItemIds(next);
+-    if (sanitized !== undefined) return sanitized;
+-    return upstreamChanged ? next : undefined;
+-  };
+-}
+-
+-function withAnthropicOutputEffort(
+-  existing: SimpleStreamOptions["onPayload"] | undefined,
+-  effort: string | undefined,
+-): SimpleStreamOptions["onPayload"] | undefined {
+-  if (!effort) return existing;
+-  return async (payload, model) => {
+-    let next = payload;
+-    let upstreamChanged = false;
+-    const upstream = await existing?.(payload, model);
+-    if (upstream !== undefined) {
+-      next = upstream;
+-      upstreamChanged = true;
+-    }
+-    if (!isRecord(next)) return upstreamChanged ? next : undefined;
+-    const outputConfig = isRecord(next.output_config) ? next.output_config : {};
+-    return {
+-      ...next,
+-      output_config: {
+-        ...outputConfig,
+-        effort,
+-      },
+-    };
+-  };
+-}
+-
+ /**
+  * Reject a turn whose irreducible prompt cannot fit the serving context window.
+  *
+@@ -391,44 +326,6 @@ function nextPowerOfTwoAtLeast(value: number): number {
+   return size;
+ }
+ 
+-function stringValue(value: unknown): string | undefined {
+-  return typeof value === "string" && value.length > 0 ? value : undefined;
+-}
+-
+-function boolValue(value: unknown): boolean | undefined {
+-  return typeof value === "boolean" ? value : undefined;
+-}
+-
+-function anthropicEffortForSettings(
+-  modelSettings: Record<string, unknown>,
+-): string | undefined {
+-  const nestedReasoning = isRecord(modelSettings.reasoning)
+-    ? modelSettings.reasoning
+-    : undefined;
+-  return (
+-    stringValue(modelSettings.effort) ??
+-    stringValue(nestedReasoning?.reasoning_effort) ??
+-    stringValue(modelSettings.reasoning_effort)
+-  );
+-}
+-
+-function maxTokensForSettings(
+-  modelSettings: Record<string, unknown>,
+-): number | undefined {
+-  const maxTokens = modelSettings.max_tokens;
+-  return typeof maxTokens === "number" && Number.isFinite(maxTokens)
+-    ? maxTokens
+-    : undefined;
+-}
+-
+-function serviceTierForSettings(
+-  model: Model<string>,
+-  modelSettings: Record<string, unknown>,
+-): "priority" | undefined {
+-  if (model.api !== "openai-codex-responses") return undefined;
+-  return modelSettings.service_tier === "priority" ? "priority" : undefined;
+-}
+-
+ function toLocalAssistantMessage(
+   message: AssistantMessage,
+   input: ProviderTurnInput,
+@@ -492,6 +389,7 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+   private readonly onContextPressure?: PiStreamAdapterOptions["onContextPressure"];
+   private readonly onLlmStart?: PiStreamAdapterOptions["onLlmStart"];
+   private readonly onLlmEnd?: PiStreamAdapterOptions["onLlmEnd"];
++  private readonly nativeInferenceFallback?: NativeInferenceFallbackPolicy;
+ 
+   constructor(options: PiStreamAdapterOptions = {}) {
+     this.modelsRuntime =
+@@ -513,6 +411,47 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+     this.onContextPressure = options.onContextPressure;
+     this.onLlmStart = options.onLlmStart;
+     this.onLlmEnd = options.onLlmEnd;
++    this.nativeInferenceFallback = options.nativeInferenceFallback;
++  }
++
++  private async emitNativeAttempt(
++    attempt: NativeInferenceModelAttempt,
++  ): Promise<void> {
++    await this.nativeInferenceFallback?.onModelAttempt?.(attempt);
++  }
++
++  private async assertNativeAttemptCurrent(
++    input: ProviderTurnInput,
++    attempt: number,
++  ): Promise<void> {
++    if (
++      this.abortSignal?.aborted ||
++      (this.nativeInferenceFallback?.isAttemptCurrent &&
++        !(await this.nativeInferenceFallback.isAttemptCurrent({
++          input,
++          attempt,
++          model: input.agent.model,
++        })))
++    ) {
++      await this.emitNativeAttempt({
++        attempt,
++        model: input.agent.model,
++        outcome: "invalidated",
++      });
++      throw new NativeInferenceAttemptInvalidatedError();
++    }
++  }
++
++  private async *emitNativeGuardedEvents(
++    events: Iterable<ProviderStreamEvent> | AsyncIterable<ProviderStreamEvent>,
++    input: ProviderTurnInput,
++    attempt: number,
++  ): AsyncIterable<ProviderStreamEvent> {
++    for await (const event of events) {
++      await this.assertNativeAttemptCurrent(input, attempt);
++      yield event;
++      await this.assertNativeAttemptCurrent(input, attempt);
++    }
+   }
+ 
+   private async *emitCompactionChunks(
+@@ -573,6 +512,7 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+ 
+   private async *streamOnce(
+     input: ProviderTurnInput,
++    fallbackAttempt = 1,
+   ): AsyncIterable<ProviderStreamEvent> {
+     const tools = toPiTools(input.clientTools);
+     const localModel = await resolveAvailableLocalModelForTurn({
+@@ -693,11 +633,19 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+         messageCount: context.messages.length,
+         contextWindow: resolved.model.contextWindow,
+       });
++      await this.assertNativeAttemptCurrent(input, fallbackAttempt);
+       const result = this.runStream(
+         resolved.model as Model<string>,
+         context,
+         options,
+       );
++      await this.emitNativeAttempt({
++        attempt: fallbackAttempt,
++        model: input.agent.model,
++        provider: resolved.model.provider,
++        ...(reasoning ? { effort: reasoning } : {}),
++        outcome: "started",
++      });
+ 
+       let streamError: unknown;
+       let finalMessage: AssistantMessage | undefined;
+@@ -748,6 +696,13 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+       ) {
+         throw new PiProviderError(finalMessage);
+       }
++      await this.emitNativeAttempt({
++        attempt: fallbackAttempt,
++        model: input.agent.model,
++        provider: resolved.model.provider,
++        ...(reasoning ? { effort: reasoning } : {}),
++        outcome: "success",
++      });
+       if (this.onContextPressure) {
+         const usageContextTokens = contextTokensFromUsage(finalMessage.usage);
+         const contextTokens =
+@@ -786,6 +741,16 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+           error: endError.error,
+         });
+       }
++      const failure = classifyNativeInferenceFailure(error);
++      await this.emitNativeAttempt({
++        attempt: fallbackAttempt,
++        model: input.agent.model,
++        provider: failure.provider ?? resolved.model.provider,
++        ...(reasoning ? { effort: reasoning } : {}),
++        outcome: failure.category === "quota_exhausted" ? "quota" : "error",
++        ...(failure.status !== undefined ? { status: failure.status } : {}),
++        ...(failure.code ? { code: failure.code } : {}),
++      });
+       throw error;
+     } finally {
+       restoreEnv();
+@@ -797,8 +762,11 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+     let preflightCompactionChecked = false;
+     let contextOverflowCompactions = 0;
+     let transientRetries = 0;
++    let fallbackAttempt = 1;
++    const attemptedModels = [input.agent.model];
+ 
+     while (true) {
++      await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
+       if (!preflightCompactionChecked) {
+         // Check once per turn. If compaction still cannot make the request fit,
+         // the provider overflow path remains the bounded recovery mechanism.
+@@ -806,23 +774,76 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+         // recreate the behavior deliberately removed in #3355.
+         preflightCompactionChecked = true;
+         const compaction = await this.compactBeforeProviderCall(activeInput);
++        await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
+         if (compaction) {
+           activeInput = { ...activeInput, uiMessages: compaction.uiMessages };
+-          yield* this.emitCompactionChunks(compaction, "context_window_limit");
++          yield* this.emitNativeGuardedEvents(
++            this.emitCompactionChunks(compaction, "context_window_limit"),
++            activeInput,
++            fallbackAttempt,
++          );
+           continue;
+         }
+       }
+ 
+       let emittedModelOutput = false;
+       let emittedLocalMessage = false;
++      const bufferedEvents: ProviderStreamEvent[] = [];
++      let bufferedBytes = 0;
+       try {
+-        for await (const event of this.streamOnce(activeInput)) {
++        for await (const event of this.streamOnce(
++          activeInput,
++          fallbackAttempt,
++        )) {
+           if (isPiModelOutputEvent(event)) emittedModelOutput = true;
+           if (event.type === "local-message") emittedLocalMessage = true;
+-          yield event;
++          if (this.nativeInferenceFallback) {
++            bufferedBytes = appendNativeInferenceBufferedEvent(
++              bufferedEvents,
++              event,
++              bufferedBytes,
++              this.nativeInferenceFallback,
++            );
++          } else {
++            yield event;
++          }
+         }
++        await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
++        yield* this.emitNativeGuardedEvents(
++          bufferedEvents,
++          activeInput,
++          fallbackAttempt,
++        );
+         return;
+       } catch (error) {
++        const failure = classifyNativeInferenceFailure(error);
++        if (
++          this.nativeInferenceFallback &&
++          failure.category === "quota_exhausted"
++        ) {
++          await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
++          const destination =
++            await this.nativeInferenceFallback.resolveDestination(
++              {
++                input: activeInput,
++                attempt: fallbackAttempt,
++                model: activeInput.agent.model,
++              },
++              failure,
++              attemptedModels,
++            );
++          await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
++          if (destination && !attemptedModels.includes(destination.model)) {
++            attemptedModels.push(destination.model);
++            activeInput = fallbackInputForDestination(activeInput, destination);
++            fallbackAttempt += 1;
++            preflightCompactionChecked = false;
++            contextOverflowCompactions = 0;
++            transientRetries = 0;
++            continue;
++          }
++        }
++
+         if (isOverflowError(error)) {
+           if (
+             !this.onContextWindowOverflow ||
+@@ -834,18 +855,22 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+             activeInput,
+             error,
+           );
++          await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
+           if (!compaction) throw error;
+ 
+           contextOverflowCompactions += 1;
+           activeInput = { ...activeInput, uiMessages: compaction.uiMessages };
+-          yield* this.emitCompactionChunks(
+-            compaction,
+-            "context_window_overflow",
++          yield* this.emitNativeGuardedEvents(
++            this.emitCompactionChunks(compaction, "context_window_overflow"),
++            activeInput,
++            fallbackAttempt,
+           );
+           continue;
+         }
+ 
+-        const retryableTransportError = isRetryableLocalProviderError(error);
++        const retryableTransportError =
++          failure.category !== "quota_exhausted" &&
++          isRetryableLocalProviderError(error);
+ 
+         // Oversized-payload classification: a retryable transport failure on a
+         // payload we can measure as oversized will keep failing — compact
+@@ -887,12 +912,14 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+           } catch {
+             compaction = null;
+           }
++          await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
+           if (compaction) {
+             contextOverflowCompactions += 1;
+             activeInput = { ...activeInput, uiMessages: compaction.uiMessages };
+-            yield* this.emitCompactionChunks(
+-              compaction,
+-              "context_window_overflow",
++            yield* this.emitNativeGuardedEvents(
++              this.emitCompactionChunks(compaction, "context_window_overflow"),
++              activeInput,
++              fallbackAttempt,
+             );
+             continue;
+           }
+@@ -933,6 +960,7 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+           !retryableTransportError
+         ) {
+           if (
++            !this.nativeInferenceFallback &&
+             emittedModelOutput &&
+             !emittedLocalMessage &&
+             error instanceof PiProviderError &&
+@@ -947,17 +975,24 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
+ 
+         transientRetries += 1;
+         const delayMs = localProviderRetryDelayMs(error, transientRetries);
+-        yield providerLettaChunk({
+-          message_type: "event_message",
+-          event_type: "retry",
+-          event_data: {
+-            attempt: transientRetries,
+-            max_attempts: LOCAL_PROVIDER_MAX_RETRIES,
+-            delay_ms: delayMs,
+-            message: localProviderRetryMessage(error),
+-          },
+-        } as never);
++        yield* this.emitNativeGuardedEvents(
++          [
++            providerLettaChunk({
++              message_type: "event_message",
++              event_type: "retry",
++              event_data: {
++                attempt: transientRetries,
++                max_attempts: LOCAL_PROVIDER_MAX_RETRIES,
++                delay_ms: delayMs,
++                message: localProviderRetryMessage(error),
++              },
++            } as never),
++          ],
++          activeInput,
++          fallbackAttempt,
++        );
+         await sleepWithAbort(delayMs, this.abortSignal);
++        await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
+       }
+     }
+   }
+diff --git a/src/backend/dev/pi-stream-options.ts b/src/backend/dev/pi-stream-options.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..742d82f00f877bde58cd1d01b8fbcdafd92b4475
+--- /dev/null
++++ b/src/backend/dev/pi-stream-options.ts
+@@ -0,0 +1,131 @@
++import type { Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
++import { isRecord } from "@/utils/type-guards";
++
++function stripOpenAIResponsesReplayItemIds(
++  payload: unknown,
++): unknown | undefined {
++  if (!isRecord(payload) || !Array.isArray(payload.input)) return undefined;
++
++  let changed = false;
++  const input = payload.input.map((item) => {
++    if (!isRecord(item) || !("id" in item)) return item;
++    const type = item.type;
++    if (
++      type !== "reasoning" &&
++      type !== "message" &&
++      type !== "function_call"
++    ) {
++      return item;
++    }
++
++    changed = true;
++    const next = { ...item };
++    delete next.id;
++    return next;
++  });
++
++  return changed ? { ...payload, input } : undefined;
++}
++
++export function withOpenAIResponsesReplayIdSanitizer(
++  existing: SimpleStreamOptions["onPayload"] | undefined,
++): SimpleStreamOptions["onPayload"] {
++  return async (payload, model) => {
++    let next = payload;
++    let upstreamChanged = false;
++    const upstream = await existing?.(payload, model);
++    if (upstream !== undefined) {
++      next = upstream;
++      upstreamChanged = true;
++    }
++
++    const sanitized = stripOpenAIResponsesReplayItemIds(next);
++    if (sanitized !== undefined) return sanitized;
++    return upstreamChanged ? next : undefined;
++  };
++}
++
++export function withAnthropicOutputEffort(
++  existing: SimpleStreamOptions["onPayload"] | undefined,
++  effort: string | undefined,
++): SimpleStreamOptions["onPayload"] | undefined {
++  if (!effort) return existing;
++  return async (payload, model) => {
++    let next = payload;
++    let upstreamChanged = false;
++    const upstream = await existing?.(payload, model);
++    if (upstream !== undefined) {
++      next = upstream;
++      upstreamChanged = true;
++    }
++    if (!isRecord(next)) return upstreamChanged ? next : undefined;
++    const outputConfig = isRecord(next.output_config) ? next.output_config : {};
++    return {
++      ...next,
++      output_config: {
++        ...outputConfig,
++        effort,
++      },
++    };
++  };
++}
++
++function stringValue(value: unknown): string | undefined {
++  return typeof value === "string" && value.length > 0 ? value : undefined;
++}
++
++export function boolValue(value: unknown): boolean | undefined {
++  return typeof value === "boolean" ? value : undefined;
++}
++
++export function anthropicEffortForSettings(
++  modelSettings: Record<string, unknown>,
++): string | undefined {
++  const nestedReasoning = isRecord(modelSettings.reasoning)
++    ? modelSettings.reasoning
++    : undefined;
++  return (
++    stringValue(modelSettings.effort) ??
++    stringValue(nestedReasoning?.reasoning_effort) ??
++    stringValue(modelSettings.reasoning_effort)
++  );
++}
++
++export function maxTokensForSettings(
++  modelSettings: Record<string, unknown>,
++): number | undefined {
++  const maxTokens = modelSettings.max_tokens;
++  return typeof maxTokens === "number" && Number.isFinite(maxTokens)
++    ? maxTokens
++    : undefined;
++}
++
++export async function sleepWithAbort(
++  delayMs: number,
++  abortSignal: AbortSignal | undefined,
++): Promise<void> {
++  if (delayMs <= 0) return;
++  if (abortSignal?.aborted) {
++    throw new DOMException("Aborted", "AbortError");
++  }
++
++  await new Promise<void>((resolve, reject) => {
++    const timeout = setTimeout(() => {
++      abortSignal?.removeEventListener("abort", onAbort);
++      resolve();
++    }, delayMs);
++    const onAbort = () => {
++      clearTimeout(timeout);
++      reject(new DOMException("Aborted", "AbortError"));
++    };
++    abortSignal?.addEventListener("abort", onAbort, { once: true });
++  });
++}
++
++export function serviceTierForSettings(
++  model: Model<string>,
++  modelSettings: Record<string, unknown>,
++): "priority" | undefined {
++  if (model.api !== "openai-codex-responses") return undefined;
++  return modelSettings.service_tier === "priority" ? "priority" : undefined;
++}
+diff --git a/src/backend/dev/provider-turn-executor.ts b/src/backend/dev/provider-turn-executor.ts
+index b2ddd01310556a1cb80bbc1833ad5d585bfced6c..2745f34475e1b7ba6e65ac21dbfe616d7cefa949 100644
+--- a/src/backend/dev/provider-turn-executor.ts
++++ b/src/backend/dev/provider-turn-executor.ts
+@@ -35,6 +35,8 @@ const LOCAL_CONTEXT_COMPACTION_RESERVE_TOKENS = 16_384;
+ const LOCAL_SMALL_CONTEXT_COMPACTION_RESERVE_RATIO = 0.2;
+ 
+ export interface ProviderTurnInput {
++  /** Internal execution signal, never read from the request body. */
++  abortSignal?: AbortSignal;
+   conversationId: string;
+   agentId: string;
+   agent: LocalAgentRecord;
+@@ -427,8 +429,8 @@ function identityForContentSegment(
+ function createProviderLettaStream(
+   events: AsyncIterable<ProviderStreamEvent>,
+   contextTokensEstimate?: number,
++  controller = new AbortController(),
+ ): Stream<LettaStreamingResponse> {
+-  const controller = new AbortController();
+   return {
+     controller,
+     async *[Symbol.asyncIterator]() {
+@@ -555,11 +557,16 @@ export class ProviderTurnExecutor implements HeadlessTurnExecutor {
+   ) {}
+ 
+   async execute(input: HeadlessTurnExecutorInput) {
+-    const providerInput = buildProviderTurnInput(input);
++    const controller = new AbortController();
++    const providerInput = {
++      ...buildProviderTurnInput(input),
++      abortSignal: controller.signal,
++    };
+     const events = await this.adapter.stream(providerInput);
+     return createProviderLettaStream(
+       events,
+       estimateProviderContextTokens(providerInput),
++      controller,
+     );
+   }
+ }
+diff --git a/src/backend/local/effective-local-agent.test.ts b/src/backend/local/effective-local-agent.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6c9a4aa200990d073cb437260105d080d09d04fd
+--- /dev/null
++++ b/src/backend/local/effective-local-agent.test.ts
+@@ -0,0 +1,24 @@
++import { expect, test } from "bun:test";
++import { effectiveLocalAgent } from "./effective-local-agent";
++
++test("dispatch and fallback fence use the same outer context and nested effort precedence", () => {
++  const agent = {
++    id: "agent-local-test",
++    name: "test",
++    system: "test",
++    tags: [],
++    model: "fixture/primary",
++    model_settings: { reasoning_effort: "low", context_window_limit: 4000 },
++  };
++  const effective = effectiveLocalAgent(agent, {
++    model: "fixture/reserve",
++    model_settings: { reasoning_effort: "high", context_window_limit: 8000 },
++    context_window_limit: 16000,
++  } as never);
++  expect(effective.model).toBe("fixture/reserve");
++  expect(effective.model_settings).toEqual({
++    reasoning_effort: "high",
++    context_window_limit: 16000,
++  });
++  expect(agent.model).toBe("fixture/primary");
++});
+diff --git a/src/backend/local/effective-local-agent.ts b/src/backend/local/effective-local-agent.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ae7fa15a5bc91c8bddc1f968d76581a7b06844ca
+--- /dev/null
++++ b/src/backend/local/effective-local-agent.ts
+@@ -0,0 +1,22 @@
++import type { Conversation } from "@letta-ai/letta-client/resources/conversations/conversations";
++import { isRecord } from "@/utils/type-guards";
++import type { LocalAgentRecord } from "./local-types";
++
++/** Shared by dispatch and its manual-selection fence, including outer context overrides. */
++export function effectiveLocalAgent(
++  agent: LocalAgentRecord,
++  conversation: Conversation,
++): LocalAgentRecord {
++  const record = conversation as unknown as Record<string, unknown>;
++  return {
++    ...agent,
++    ...(typeof record.model === "string" ? { model: record.model } : {}),
++    model_settings: {
++      ...agent.model_settings,
++      ...(isRecord(record.model_settings) ? record.model_settings : {}),
++      ...(typeof record.context_window_limit === "number"
++        ? { context_window_limit: record.context_window_limit }
++        : {}),
++    },
++  };
++}
+diff --git a/src/backend/local/local-backend.ts b/src/backend/local/local-backend.ts
+index 812cc979f46eeb3ac37f0ba2d05f3564794bcdd5..81cd474cfd5a54f6ecb428d4aa127d6248db7885 100644
+--- a/src/backend/local/local-backend.ts
++++ b/src/backend/local/local-backend.ts
+@@ -19,6 +19,7 @@ import {
+   HeadlessBackend,
+ } from "@/backend/dev/headless-backend";
+ import type { HeadlessTurnExecutor } from "@/backend/dev/headless-turn-executor";
++import type { NativeInferenceFallbackPolicy } from "@/backend/dev/native-inference-fallback";
+ import { LocalPiModelsRuntime } from "@/backend/dev/pi-models-runtime";
+ import type {
+   LocalContextPressure,
+@@ -44,6 +45,7 @@ import {
+   summarizeLocalMessagesAll,
+   summarizeLocalMessagesSlidingWindow,
+ } from "./compaction";
++import { effectiveLocalAgent } from "./effective-local-agent";
+ import { initialMemoryFilesFromCreateBody } from "./initial-memory";
+ import {
+   createLocalExecutor,
+@@ -83,6 +85,8 @@ export interface LocalBackendOptions {
+   memoryDir?: string;
+   memfsEnabled?: boolean;
+   modelsRuntime?: LocalPiModelsRuntime;
++  /** Prototype-only injected policy; production startup never sets this. */
++  nativeInferenceFallback?: NativeInferenceFallbackPolicy;
+ }
+ /**
+  * Hooks the harness installs (via {@link LocalBackend.setModEventHooks}) so
+@@ -225,6 +229,18 @@ export class LocalBackend extends HeadlessBackend {
+           localBackendRef.current?.emitLlmStart(info) ?? Promise.resolve(),
+         (info) =>
+           localBackendRef.current?.emitLlmEnd(info) ?? Promise.resolve(),
++        (input) => {
++          const store = localBackendRef.current?.store;
++          return store
++            ? effectiveLocalAgent(
++                store.retrieveExecutionAgentRecord(
++                  input.conversationId,
++                  input.agentId,
++                ),
++                store.retrieveConversation(input.conversationId, input.agentId),
++              )
++            : undefined;
++        },
+       ),
+       storeOptions,
+       {
+diff --git a/src/backend/local/local-executor-factory.ts b/src/backend/local/local-executor-factory.ts
+index 7963069c2ffd7c46a638572c13d930409b9114a6..f0362eb32ddb0b5e771006197680cddd30d9150b 100644
+--- a/src/backend/local/local-executor-factory.ts
++++ b/src/backend/local/local-executor-factory.ts
+@@ -3,6 +3,7 @@ import {
+   DeterministicReflectionExecutor,
+   type HeadlessTurnExecutor,
+ } from "@/backend/dev/headless-turn-executor";
++import type { NativeInferenceFallbackPolicy } from "@/backend/dev/native-inference-fallback";
+ import type { LocalPiModelsRuntime } from "@/backend/dev/pi-models-runtime";
+ import {
+   type LocalContextPressure,
+@@ -14,9 +15,18 @@ import type {
+   LlmStartInfo,
+   ProviderTurnInput,
+ } from "@/backend/dev/provider-turn-executor";
+-import { ProviderTurnExecutor } from "@/backend/dev/provider-turn-executor";
++import {
++  ProviderTurnExecutor,
++  providerLettaChunk,
++} from "@/backend/dev/provider-turn-executor";
+ import type { LocalCompactionStats } from "./compaction";
+ import type { LocalMessage } from "./local-message";
++import { loadNativeFallbackConfig } from "./native-fallback-config";
++import {
++  createNativeFallbackPolicy,
++  type NativeFallbackAudit,
++  type ReadFallbackSelection,
++} from "./native-fallback-policy";
+ 
+ export type LocalBackendExecutionMode =
+   | "pi"
+@@ -28,6 +38,8 @@ export interface CreateLocalExecutorOptions {
+   executionMode?: LocalBackendExecutionMode;
+   executor?: HeadlessTurnExecutor;
+   stream?: PiStreamFunction;
++  /** Test seam. Production derives the policy from validated local configuration. */
++  nativeInferenceFallback?: NativeInferenceFallbackPolicy;
+ }
+ 
+ type LocalCompactionCallback = (
+@@ -52,6 +64,7 @@ export function createLocalExecutor(
+   ) => ReturnType<LocalCompactionCallback>,
+   onLlmStart?: (info: LlmStartInfo) => void | Promise<void>,
+   onLlmEnd?: (info: LlmEndInfo) => void | Promise<void>,
++  readFallbackSelection?: ReadFallbackSelection,
+ ): HeadlessTurnExecutor {
+   if (options.executor) return options.executor;
+   if (options.executionMode === "deterministic") {
+@@ -60,15 +73,78 @@ export function createLocalExecutor(
+   if (options.executionMode === "deterministic-reflection") {
+     return new DeterministicReflectionExecutor();
+   }
+-  return new ProviderTurnExecutor(
+-    new PiStreamAdapter({
+-      stream: options.stream,
+-      localProviderAuthStorageDir: options.storageDir,
+-      modelsRuntime,
+-      onContextWindowOverflow,
+-      onContextPressure,
+-      onLlmStart,
+-      onLlmEnd,
+-    }),
+-  );
++  const loaded = loadNativeFallbackConfig(options.storageDir);
++  if (loaded && options.nativeInferenceFallback) {
++    throw new Error("Cannot install two native inference fallback policies");
++  }
++  return new ProviderTurnExecutor({
++    async *stream(originalInput) {
++      const scoped = loaded?.config.scopes.some(
++        (scope) => scope.agentId === originalInput.agentId,
++      );
++      const signal =
++        scoped && loaded
++          ? AbortSignal.any([
++              ...(originalInput.abortSignal ? [originalInput.abortSignal] : []),
++              AbortSignal.timeout(loaded.config.timeoutMs),
++            ])
++          : options.nativeInferenceFallback
++            ? originalInput.abortSignal
++            : undefined;
++      const input = { ...originalInput, abortSignal: signal };
++      const observations: NativeFallbackAudit[] = [];
++      const policy =
++        options.nativeInferenceFallback ??
++        createNativeFallbackPolicy(
++          loaded,
++          input,
++          options.storageDir,
++          modelsRuntime,
++          readFallbackSelection,
++          (event) => observations.push(event),
++        );
++      const adapter = new PiStreamAdapter({
++        stream: options.stream,
++        localProviderAuthStorageDir: options.storageDir,
++        modelsRuntime,
++        onContextWindowOverflow,
++        onContextPressure,
++        onLlmStart,
++        onLlmEnd,
++        nativeInferenceFallback: policy,
++        abortSignal: signal,
++      });
++      function* drain() {
++        for (const event of observations.splice(0)) {
++          yield providerLettaChunk({
++            message_type: "event_message",
++            event_type: "native_inference_fallback",
++            event_data: event,
++          } as never);
++        }
++      }
++      try {
++        for await (const event of adapter.stream(input)) {
++          yield* drain();
++          // Diagnostic delivery is also an await boundary. Never deliver stale model output.
++          if (
++            signal?.aborted ||
++            (policy?.isAttemptCurrent &&
++              !(await policy.isAttemptCurrent({
++                input,
++                model: input.agent.model,
++                attempt: 0,
++              })))
++          ) {
++            throw new Error(
++              "Native inference attempt invalidated before delivery",
++            );
++          }
++          yield event;
++        }
++      } finally {
++        yield* drain();
++      }
++    },
++  });
+ }
+diff --git a/src/backend/local/native-fallback-config.test.ts b/src/backend/local/native-fallback-config.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b7b3ecfb3fc64b5a048114fc2a76a95be8db623
+--- /dev/null
++++ b/src/backend/local/native-fallback-config.test.ts
+@@ -0,0 +1,60 @@
++import { expect, test } from "bun:test";
++import { parseNativeFallbackConfig } from "./native-fallback-config";
++
++function valid() {
++  const target = {
++    model: "fixture/primary",
++    provider: "fixture",
++    credentialProvider: "fixture",
++    contextWindow: 128000,
++    maxOutputTokens: 4096,
++    effort: "high",
++    tools: true,
++    input: ["text"],
++  };
++  return {
++    version: 1,
++    enabled: true,
++    owner: "native-inference",
++    externalController: "disabled-for-scopes",
++    timeoutMs: 60000,
++    scopes: [
++      {
++        agentId: "agent-local-fixture",
++        lineage: "self",
++        chain: [target, { ...target, model: "fixture/reserve" }],
++      },
++    ],
++  };
++}
++test("OFF is explicit and validated; ON requires exact scope and single-owner attestation", () => {
++  expect(
++    parseNativeFallbackConfig({ version: 1, enabled: false }),
++  ).toBeUndefined();
++  expect(parseNativeFallbackConfig(valid())?.scopes).toHaveLength(1);
++  for (const patch of [
++    { enabled: "true" },
++    { version: 2 },
++    { scopes: [] },
++    { owner: "watchdog" },
++    { externalController: "active" },
++    { timeoutMs: Infinity },
++    { apiKey: "not-allowed" },
++  ]) {
++    expect(() => parseNativeFallbackConfig({ ...valid(), ...patch })).toThrow();
++  }
++});
++test("no wildcard lineage, cycles, arbitrary credentials or effort downgrade", () => {
++  const value = valid();
++  for (const scope of value.scopes) scope.lineage = "descendants";
++  expect(() => parseNativeFallbackConfig(value)).toThrow();
++  const cyclic = valid();
++  for (const scope of cyclic.scopes)
++    for (const entry of scope.chain) entry.model = "fixture/primary";
++  expect(() => parseNativeFallbackConfig(cyclic)).toThrow();
++  const credential = valid();
++  for (const scope of credential.scopes)
++    for (const entry of scope.chain)
++      entry.credentialProvider = "another-account";
++  expect(() => parseNativeFallbackConfig(credential)).toThrow();
++});
+diff --git a/src/backend/local/native-fallback-config.ts b/src/backend/local/native-fallback-config.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1100e732f7b2ad5d1287c7a48a6d8a6d99684f63
+--- /dev/null
++++ b/src/backend/local/native-fallback-config.ts
+@@ -0,0 +1,176 @@
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { isRecord } from "@/utils/type-guards";
++
++export interface NativeFallbackTarget {
++  model: string;
++  provider: string;
++  /** Provider registry/auth-store reference, never a credential value. */
++  credentialProvider: string;
++  contextWindow: number;
++  maxOutputTokens: number;
++  effort: "low" | "medium" | "high" | "xhigh" | "max";
++  tools: boolean;
++  input: Array<"text" | "image">;
++}
++export interface NativeFallbackConfig {
++  version: 1;
++  enabled: true;
++  owner: "native-inference";
++  /** Operator attestation: the external writer is disabled for exactly these scopes. */
++  externalController: "disabled-for-scopes";
++  timeoutMs: number;
++  scopes: Array<{
++    agentId: string;
++    /** No implicit child/peer inheritance; no forged parent metadata admission. */
++    lineage: "self";
++    chain: NativeFallbackTarget[];
++  }>;
++}
++export interface LoadedNativeFallbackConfig {
++  config: NativeFallbackConfig;
++  isCurrent(): boolean;
++}
++
++function invalid(field: string): never {
++  throw new Error(`Invalid native inference fallback configuration: ${field}`);
++}
++function keys(value: Record<string, unknown>, allowed: string[]): void {
++  if (Object.keys(value).some((key) => !allowed.includes(key)))
++    invalid("unknown field");
++}
++function positiveInteger(value: unknown, limit: number): value is number {
++  return (
++    Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= limit
++  );
++}
++function target(value: unknown): NativeFallbackTarget {
++  if (!isRecord(value)) invalid("target");
++  keys(value, [
++    "model",
++    "provider",
++    "credentialProvider",
++    "contextWindow",
++    "maxOutputTokens",
++    "effort",
++    "tools",
++    "input",
++  ]);
++  if (
++    typeof value.model !== "string" ||
++    !/^[a-z0-9-]+\/[^\s]+$/.test(value.model)
++  )
++    invalid("model handle");
++  if (
++    value.provider !== value.model.split("/")[0] ||
++    value.credentialProvider !== value.provider
++  )
++    invalid("provider reference");
++  if (
++    !positiveInteger(value.contextWindow, 10_000_000) ||
++    !positiveInteger(value.maxOutputTokens, 1_000_000) ||
++    value.maxOutputTokens >= value.contextWindow
++  )
++    invalid("context/output limits");
++  if (!["low", "medium", "high", "xhigh", "max"].includes(String(value.effort)))
++    invalid("effort");
++  if (
++    typeof value.tools !== "boolean" ||
++    !Array.isArray(value.input) ||
++    !value.input.includes("text") ||
++    value.input.some((v) => v !== "text" && v !== "image")
++  )
++    invalid("capabilities");
++  return value as unknown as NativeFallbackTarget;
++}
++
++export function parseNativeFallbackConfig(
++  value: unknown,
++): NativeFallbackConfig | undefined {
++  if (!isRecord(value)) invalid("object required");
++  if (value.enabled === false) {
++    keys(value, [
++      "version",
++      "enabled",
++      "owner",
++      "externalController",
++      "timeoutMs",
++      "scopes",
++    ]);
++    if (value.version !== 1) invalid("version");
++    return undefined;
++  }
++  keys(value, [
++    "version",
++    "enabled",
++    "owner",
++    "externalController",
++    "timeoutMs",
++    "scopes",
++  ]);
++  if (
++    value.version !== 1 ||
++    value.enabled !== true ||
++    value.owner !== "native-inference" ||
++    value.externalController !== "disabled-for-scopes"
++  )
++    invalid("activation/ownership");
++  if (!positiveInteger(value.timeoutMs, 3_600_000)) invalid("timeoutMs");
++  if (!Array.isArray(value.scopes) || value.scopes.length === 0)
++    invalid("explicit scopes required");
++  const seen = new Set<string>();
++  for (const scope of value.scopes) {
++    if (!isRecord(scope)) invalid("scope");
++    keys(scope, ["agentId", "lineage", "chain"]);
++    if (
++      typeof scope.agentId !== "string" ||
++      !/^agent-local-[a-zA-Z0-9-]+$/.test(scope.agentId) ||
++      seen.has(scope.agentId)
++    )
++      invalid("agentId");
++    seen.add(scope.agentId);
++    if (scope.lineage !== "self") invalid("lineage (only self is supported)");
++    if (
++      !Array.isArray(scope.chain) ||
++      scope.chain.length < 2 ||
++      scope.chain.length > 4
++    )
++      invalid("finite chain (2..4)");
++    const handles = scope.chain.map((entry) => target(entry).model);
++    if (new Set(handles).size !== handles.length)
++      invalid("duplicate destination");
++  }
++  return value as unknown as NativeFallbackConfig;
++}
++
++/** Missing/OFF preserves baseline. Malformed, unreadable, or unsupported ON fails closed. */
++export function loadNativeFallbackConfig(
++  storageDir: string,
++): LoadedNativeFallbackConfig | undefined {
++  const path = join(storageDir, "native-inference-fallback.json");
++  let raw: string;
++  try {
++    raw = readFileSync(path, "utf8");
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
++    throw new Error("Cannot read native inference fallback configuration");
++  }
++  let value: unknown;
++  try {
++    value = JSON.parse(raw);
++  } catch {
++    invalid("JSON");
++  }
++  const config = parseNativeFallbackConfig(value);
++  if (!config) return undefined;
++  return {
++    config,
++    isCurrent() {
++      try {
++        return readFileSync(path, "utf8") === raw;
++      } catch {
++        return false;
++      }
++    },
++  };
++}
+diff --git a/src/backend/local/native-fallback-policy.test.ts b/src/backend/local/native-fallback-policy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..34a0546f87b5964c1915693985da773b8cdffaab
+--- /dev/null
++++ b/src/backend/local/native-fallback-policy.test.ts
+@@ -0,0 +1,85 @@
++import { expect, test } from "bun:test";
++import { runFallbackV4Scenario } from "@/test-utils/fallback-v4-scenario";
++
++test("production factory finishes one task on reserve after a real Write, without re-appending input", async () => {
++  const report = await runFallbackV4Scenario();
++  expect(report.requests.map((r) => r.model)).toEqual([
++    "primary",
++    "primary",
++    "reserve",
++  ]);
++  expect(report.requests.at(-1)?.messages).toEqual(
++    report.requests.at(-2)?.messages,
++  );
++  expect(report.requests.map((r) => r.effort)).toEqual([
++    "high",
++    "high",
++    "high",
++  ]);
++  expect(report.effects).toBe(1);
++  expect(report.effect).toBe("one real tool effect\n");
++  expect(
++    report.chunks.filter((c) => c.message_type === "assistant_message"),
++  ).toHaveLength(1);
++  expect(
++    report.chunks.filter((c) => c.message_type === "approval_request_message"),
++  ).toHaveLength(1);
++  expect(
++    report.history.filter((m) => m.message_type === "user_message"),
++  ).toHaveLength(1);
++  const events = report.chunks
++    .filter((c) => c.event_type === "native_inference_fallback")
++    .map((c) => c.event_data as Record<string, unknown>);
++  expect(
++    events.every(
++      (e) =>
++        e.taskId === "v4-task-input" &&
++        e.agentId === report.agentId &&
++        e.lineage === "self",
++    ),
++  ).toBe(true);
++  expect(
++    events
++      .filter(
++        (e) =>
++          e.outcome === "quota" || (e.outcome === "success" && e.attempt === 2),
++      )
++      .map((e) => [e.model, e.provider, e.outcome]),
++  ).toEqual([
++    ["v4-primary/primary", "v4-primary", "quota"],
++    ["v4-reserve/reserve", "v4-reserve", "success"],
++  ]);
++});
++
++for (const options of [
++  { enabled: false },
++  { status: 401 },
++  { status: 403 },
++  { unlisted: true },
++  { missingReserve: true },
++  { toolsIncompatible: true },
++  { incompatible: true },
++  { lowPrimaryEffort: true },
++  { manualChange: true },
++  { cancel: true },
++  { timeout: true },
++]) {
++  test(`factory fails closed without duplicate tool effects: ${JSON.stringify(options)}`, async () => {
++    const report = await runFallbackV4Scenario(options);
++    expect(report.requests.map((r) => r.model)).toEqual(["primary", "primary"]);
++    expect(report.effects).toBe(1);
++    expect(
++      report.chunks.filter((c) => c.message_type === "assistant_message"),
++    ).toHaveLength(0);
++    expect(report.chunks.some((c) => c.message_type === "error_message")).toBe(
++      true,
++    );
++    expect(
++      report.history.filter((m) => m.message_type === "user_message"),
++    ).toHaveLength(1);
++    if ("enabled" in options)
++      expect(
++        report.chunks.some((c) => c.event_type === "native_inference_fallback"),
++      ).toBe(false);
++  });
++}
+diff --git a/src/backend/local/native-fallback-policy.ts b/src/backend/local/native-fallback-policy.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8a5e1e08aa15c7ad6556e04c5b76f6f7505a48ec
+--- /dev/null
++++ b/src/backend/local/native-fallback-policy.ts
+@@ -0,0 +1,173 @@
++import type { NativeInferenceFallbackPolicy } from "@/backend/dev/native-inference-fallback";
++import {
++  reasoningForSettings,
++  resolvePiModelForAgent,
++} from "@/backend/dev/pi-model-factory";
++import type { LocalPiModelsRuntime } from "@/backend/dev/pi-models-runtime";
++import {
++  estimateProviderContextTokens,
++  type ProviderTurnInput,
++} from "@/backend/dev/provider-turn-executor";
++import type { LocalAgentRecord } from "./local-types";
++import type {
++  LoadedNativeFallbackConfig,
++  NativeFallbackTarget,
++} from "./native-fallback-config";
++
++export type ReadFallbackSelection = (
++  input: ProviderTurnInput,
++) => LocalAgentRecord | undefined;
++export interface NativeFallbackAudit {
++  event: "attempt" | "rejected";
++  agentId: string;
++  conversationId: string;
++  taskId: string;
++  lineage: "self";
++  owner: "native-inference";
++  [key: string]: unknown;
++}
++
++function selection(agent: LocalAgentRecord): string {
++  return JSON.stringify([agent.model, agent.model_settings]);
++}
++
++/** One policy per inference. The original stored selection, not an override, fences every attempt. */
++export function createNativeFallbackPolicy(
++  loaded: LoadedNativeFallbackConfig | undefined,
++  input: ProviderTurnInput,
++  storageDir: string,
++  runtime: LocalPiModelsRuntime,
++  readSelection: ReadFallbackSelection | undefined,
++  observe: (event: NativeFallbackAudit) => void,
++): NativeInferenceFallbackPolicy | undefined {
++  const scope = loaded?.config.scopes.find(
++    (entry) => entry.agentId === input.agentId,
++  );
++  if (!loaded || !scope) return undefined;
++  const original = selection(input.agent);
++  const verifiedCatalog = new Map<string, string>();
++  const catalogSnapshot = (handle: string) => {
++    const slash = handle.indexOf("/");
++    return JSON.stringify(
++      runtime.getModel(handle.slice(0, slash), handle.slice(slash + 1)),
++    );
++  };
++  const started = Date.now();
++  const lastUser = input.uiMessages.findLast(
++    (message) => message.role === "user",
++  );
++  const taskId =
++    lastUser?.role === "user" ? (lastUser.otid ?? lastUser.id) : "unknown";
++  const identity = {
++    agentId: input.agentId,
++    conversationId: input.conversationId,
++    taskId,
++    lineage: "self" as const,
++    owner: "native-inference" as const,
++  };
++  const reject = (reason: string): never => {
++    observe({ ...identity, event: "rejected", reason });
++    throw new Error(`Native inference fallback refused: ${reason}`);
++  };
++  const checkTarget = async (destination: NativeFallbackTarget) => {
++    const resolved = await resolvePiModelForAgent(
++      destination.model,
++      {},
++      {
++        modelsRuntime: runtime,
++        localProviderAuthStorageDir: storageDir,
++        abortSignal: input.abortSignal,
++      },
++    );
++    if (resolved.model.provider !== destination.provider || !resolved.apiKey)
++      reject("provider/credential reference unavailable");
++    const requiredContext = Number(
++      input.agent.model_settings.context_window_limit ?? 0,
++    );
++    if (
++      destination.contextWindow > resolved.model.contextWindow ||
++      destination.contextWindow < requiredContext ||
++      destination.maxOutputTokens > resolved.model.maxTokens ||
++      destination.contextWindow <
++        (estimateProviderContextTokens(input) ?? Infinity) +
++          destination.maxOutputTokens
++    )
++      reject("context capacity incompatible");
++    const images = input.uiMessages.some(
++      (m) =>
++        Array.isArray(m.content) &&
++        m.content.some((part) => part.type === "image"),
++    );
++    if (
++      images &&
++      (!destination.input.includes("image") ||
++        !resolved.model.input.includes("image"))
++    )
++      reject("image capacity incompatible");
++    if (input.clientTools.length > 0 && !destination.tools)
++      reject("tool capacity incompatible");
++    if (
++      !resolved.model.reasoning ||
++      reasoningForSettings(
++        { reasoning_effort: destination.effort },
++        destination.model,
++        resolved.model,
++      ) !== destination.effort
++    )
++      reject("effort incompatible (no silent downgrade)");
++    const mapping = resolved.model.thinkingLevelMap?.[destination.effort];
++    if (mapping !== undefined && mapping !== destination.effort)
++      reject("provider effort mapping incompatible");
++    const snapshot = catalogSnapshot(destination.model);
++    if (!snapshot) return reject("catalog entry unavailable at validation");
++    verifiedCatalog.set(destination.model, snapshot);
++    return {
++      model: destination.model,
++      modelSettings: {
++        context_window_limit: destination.contextWindow,
++        max_tokens: destination.maxOutputTokens,
++        reasoning_effort: destination.effort,
++      },
++    };
++  };
++  return {
++    async isAttemptCurrent(context) {
++      const current = readSelection?.(input);
++      const verified = verifiedCatalog.get(context.model);
++      return (
++        (!verified || catalogSnapshot(context.model) === verified) &&
++        !input.abortSignal?.aborted &&
++        Date.now() - started < loaded.config.timeoutMs &&
++        loaded.isCurrent() &&
++        !!current &&
++        selection(current) === original
++      );
++    },
++    async resolveDestination(_context, failure, attemptedModels) {
++      if (failure.category !== "quota_exhausted") return null;
++      const primary = scope.chain[0];
++      if (!primary || input.agent.model !== primary.model)
++        return reject("primary selection is outside configured chain");
++      if (
++        reasoningForSettings(input.agent.model_settings, input.agent.model) !==
++        primary.effort
++      )
++        return reject("primary effort is outside configured chain");
++      const next = scope.chain[attemptedModels.length];
++      if (!next) return reject("approved chain exhausted");
++      try {
++        return await checkTarget(next);
++      } catch (error) {
++        if (
++          error instanceof Error &&
++          error.message.startsWith("Native inference fallback refused:")
++        )
++          throw error;
++        return reject("destination could not be resolved");
++      }
++    },
++    onModelAttempt(attempt) {
++      observe({ ...identity, event: "attempt", ...attempt });
++    },
++  };
++}
+diff --git a/src/backend/native-inference-fallback-integration.test.ts b/src/backend/native-inference-fallback-integration.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1875c7e69ecef969a25007c0410cbaf7ff50299c
+--- /dev/null
++++ b/src/backend/native-inference-fallback-integration.test.ts
+@@ -0,0 +1,632 @@
++import { afterEach, describe, expect, test } from "bun:test";
++import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
++import { createServer } from "node:http";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import type {
++  AssistantMessage,
++  AssistantMessageEvent,
++  Context,
++  Model,
++} from "@earendil-works/pi-ai";
++import { normalizeContext } from "@earendil-works/pi-ai";
++import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
++import type { LettaStreamingResponse } from "@letta-ai/letta-client/resources/agents/messages";
++import type { ConversationMessageCreateBody } from "@/backend";
++import type {
++  NativeInferenceFallbackPolicy,
++  NativeInferenceModelAttempt,
++} from "@/backend/dev/native-inference-fallback";
++import { LocalPiModelsRuntime } from "@/backend/dev/pi-models-runtime";
++import {
++  clearRegisteredPiProviders,
++  registerPiProvider,
++} from "@/backend/dev/pi-provider-mod-registry";
++import type { PiStreamFunction } from "@/backend/dev/pi-stream-adapter";
++import { LocalBackend } from "@/backend/local/local-backend";
++import { emptyLocalUsage } from "@/backend/local/local-message";
++
++const PRIMARY = "openai/gpt-5.5";
++const SECONDARY = "openai/gpt-5.4";
++const roots: string[] = [];
++
++afterEach(async () => {
++  clearRegisteredPiProviders();
++  await Promise.all(
++    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
++  );
++});
++
++function message(
++  model: Model<string>,
++  content: AssistantMessage["content"],
++  stopReason: AssistantMessage["stopReason"],
++  responseId: string,
++): AssistantMessage {
++  return {
++    role: "assistant",
++    content,
++    api: model.api,
++    provider: model.provider,
++    model: model.id,
++    responseId,
++    usage: emptyLocalUsage(),
++    stopReason,
++    timestamp: Date.now(),
++  };
++}
++
++function quota(
++  model: Model<string>,
++  content: AssistantMessage["content"] = [],
++): AssistantMessage {
++  return {
++    ...message(model, content, "error", `quota-${model.id}`),
++    errorMessage:
++      '429: {"code":"1310","message":"Weekly/Monthly Limit Exhausted"}',
++  };
++}
++
++function result(
++  events: AssistantMessageEvent[],
++  finalMessage: AssistantMessage,
++): ReturnType<PiStreamFunction> {
++  async function* iterator() {
++    for (const event of events) yield event;
++  }
++  return Object.assign(iterator(), { result: async () => finalMessage });
++}
++
++function fallbackPolicy(
++  attempts: NativeInferenceModelAttempt[],
++): NativeInferenceFallbackPolicy {
++  return {
++    resolveDestination(context, failure, attemptedModels) {
++      if (
++        context.input.agent.name !== "Clara synthetic" ||
++        failure.category !== "quota_exhausted" ||
++        attemptedModels.includes(SECONDARY)
++      ) {
++        return null;
++      }
++      return {
++        model: SECONDARY,
++        modelSettings: { reasoning_effort: "xhigh" },
++      };
++    },
++    onModelAttempt(attempt) {
++      attempts.push(attempt);
++    },
++  };
++}
++
++async function collect(
++  stream: AsyncIterable<LettaStreamingResponse>,
++): Promise<LettaStreamingResponse[]> {
++  const chunks: LettaStreamingResponse[] = [];
++  for await (const chunk of stream) chunks.push(chunk);
++  return chunks;
++}
++
++async function fixture(stream: PiStreamFunction) {
++  const root = await mkdtemp(join(tmpdir(), "letta-native-fallback-"));
++  roots.push(root);
++  const storageDir = join(root, "local-backend");
++  const attempts: NativeInferenceModelAttempt[] = [];
++  const backend = new LocalBackend({
++    storageDir,
++    stateStorageDir: storageDir,
++    stream,
++    memfsEnabled: false,
++    nativeInferenceFallback: fallbackPolicy(attempts),
++  });
++  const agent = await backend.createAgent({
++    name: "Clara synthetic",
++    model: PRIMARY,
++    model_settings: { reasoning_effort: "low" },
++  } as never);
++  const conversation = await backend.createConversation({
++    agent_id: agent.id,
++  } as never);
++  return { root, storageDir, attempts, backend, agent, conversation };
++}
++
++function textChunks(chunks: LettaStreamingResponse[]): string {
++  return chunks
++    .filter((chunk) => chunk.message_type === "assistant_message")
++    .flatMap((chunk) =>
++      "content" in chunk && Array.isArray(chunk.content) ? chunk.content : [],
++    )
++    .flatMap((block) =>
++      typeof block === "object" &&
++      block !== null &&
++      "type" in block &&
++      block.type === "text" &&
++      "text" in block &&
++      typeof block.text === "string"
++        ? [block.text]
++        : [],
++    )
++    .join("");
++}
++
++describe("native inference fallback through LocalBackend and ProviderTurnExecutor", () => {
++  test("uses both provider-published models through real pi-ai HTTP drivers", async () => {
++    const requests: Array<{
++      model: string;
++      authorization?: string;
++      input: unknown;
++    }> = [];
++    const server = createServer((request, response) => {
++      const body: Buffer[] = [];
++      request.on("data", (chunk) => body.push(Buffer.from(chunk)));
++      request.on("end", () => {
++        const payload = JSON.parse(Buffer.concat(body).toString("utf8")) as {
++          model?: string;
++          messages?: unknown;
++        };
++        requests.push({
++          model: payload.model ?? "",
++          authorization: request.headers.authorization,
++          input: payload.messages,
++        });
++        if (payload.model === "primary-model") {
++          response.writeHead(429, { "content-type": "application/json" });
++          response.end(
++            JSON.stringify({
++              error: {
++                code: "1310",
++                message: "Weekly/Monthly Limit Exhausted",
++              },
++            }),
++          );
++          return;
++        }
++        response.writeHead(200, { "content-type": "text/event-stream" });
++        const chunk = (choices: unknown[]) =>
++          `data: ${JSON.stringify({
++            id: "secondary-http-response",
++            object: "chat.completion.chunk",
++            created: 1,
++            model: "secondary-model",
++            choices,
++          })}\n\n`;
++        response.write(
++          chunk([
++            {
++              index: 0,
++              delta: { role: "assistant", content: "secondary-http-success" },
++              finish_reason: null,
++            },
++          ]),
++        );
++        response.write(chunk([{ index: 0, delta: {}, finish_reason: "stop" }]));
++        response.end("data: [DONE]\n\n");
++      });
++    });
++    await new Promise<void>((resolve) =>
++      server.listen(0, "127.0.0.1", resolve),
++    );
++    const address = server.address();
++    if (!address || typeof address === "string") {
++      throw new Error("Expected loopback HTTP port");
++    }
++    const baseUrl = `http://127.0.0.1:${address.port}`;
++    const root = await mkdtemp(join(tmpdir(), "letta-native-fallback-http-"));
++    roots.push(root);
++    const storageDir = join(root, "backend");
++    const primary = "fixture-primary/primary-model";
++    const secondary = "fixture-secondary/secondary-model";
++    const modelRegistration = (id: string) => ({
++      id,
++      name: id,
++      reasoning: false,
++      input: ["text"] as ["text"],
++      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
++      contextWindow: 128_000,
++      maxTokens: 4_096,
++    });
++    registerPiProvider("fixture-primary", {
++      api: "openai-completions",
++      baseUrl,
++      apiKey: "fake-primary-key",
++      models: [modelRegistration("primary-model")],
++    });
++    registerPiProvider("fixture-secondary", {
++      api: "openai-completions",
++      baseUrl,
++      apiKey: "fake-secondary-key",
++      models: [modelRegistration("secondary-model")],
++    });
++    const modelsRuntime = new LocalPiModelsRuntime({ storageDir });
++    const dispatches: Array<{
++      model: string;
++      provider: string;
++      baseUrl: string;
++    }> = [];
++    const attempts: NativeInferenceModelAttempt[] = [];
++    const stream: PiStreamFunction = (model, context, options) => {
++      dispatches.push({
++        model: model.id,
++        provider: model.provider,
++        baseUrl: model.baseUrl,
++      });
++      if (model.api !== "openai-completions") {
++        throw new Error(`Expected openai-completions, got ${model.api}`);
++      }
++      return streamSimple(
++        { ...model, api: model.api },
++        normalizeContext(context),
++        { ...options, maxRetries: 0 },
++      );
++    };
++    const backend = new LocalBackend({
++      storageDir,
++      stateStorageDir: storageDir,
++      modelsRuntime,
++      stream,
++      memfsEnabled: false,
++      nativeInferenceFallback: {
++        resolveDestination(_context, failure, attemptedModels) {
++          if (
++            failure.category !== "quota_exhausted" ||
++            attemptedModels.includes(secondary)
++          ) {
++            return null;
++          }
++          return { model: secondary, modelSettings: {} };
++        },
++        onModelAttempt(attempt) {
++          attempts.push(attempt);
++        },
++      },
++    });
++
++    try {
++      const agent = await backend.createAgent({
++        name: "Clara HTTP synthetic",
++        model: primary,
++        model_settings: {},
++      } as never);
++      const conversation = await backend.createConversation({
++        agent_id: agent.id,
++      } as never);
++      const sink = await collect(
++        await backend.createConversationMessageStream(conversation.id, {
++          agent_id: agent.id,
++          messages: [{ role: "user", content: "same HTTP input" }],
++        } as ConversationMessageCreateBody),
++      );
++
++      expect(requests.map((request) => request.model)).toEqual([
++        "primary-model",
++        "secondary-model",
++      ]);
++      expect(requests.map((request) => request.authorization)).toEqual([
++        "Bearer fake-primary-key",
++        "Bearer fake-secondary-key",
++      ]);
++      expect(requests[0]?.input).toEqual(requests[1]?.input);
++      expect(dispatches).toEqual([
++        { model: "primary-model", provider: "fixture-primary", baseUrl },
++        { model: "secondary-model", provider: "fixture-secondary", baseUrl },
++      ]);
++      expect(textChunks(sink)).toBe("secondary-http-success");
++      expect(
++        attempts
++          .filter((attempt) => attempt.outcome !== "started")
++          .map((attempt) => ({
++            model: attempt.model,
++            provider: attempt.provider,
++            outcome: attempt.outcome,
++            status: attempt.status,
++            code: attempt.code,
++          })),
++      ).toEqual([
++        {
++          model: primary,
++          provider: "fixture-primary",
++          outcome: "quota",
++          status: 429,
++          code: "1310",
++        },
++        {
++          model: secondary,
++          provider: "fixture-secondary",
++          outcome: "success",
++          status: undefined,
++          code: undefined,
++        },
++      ]);
++    } finally {
++      await new Promise<void>((resolve, reject) =>
++        server.close((error) => (error ? reject(error) : resolve())),
++      );
++    }
++  });
++
++  test("persists one input and delivers one secondary answer to the same synthetic channel sink", async () => {
++    const dispatches: Array<{ model: string; messages: number }> = [];
++    const stream: PiStreamFunction = (model, context) => {
++      dispatches.push({
++        model: `${model.provider}/${model.id}`,
++        messages: context.messages.length,
++      });
++      if (model.id === "gpt-5.5") {
++        const failure = quota(model, [
++          { type: "text", text: "partial-primary" },
++        ]);
++        return result(
++          [
++            {
++              type: "text_delta",
++              contentIndex: 0,
++              delta: "partial-primary",
++              partial: failure,
++            },
++            { type: "error", reason: "error", error: failure },
++          ],
++          failure,
++        );
++      }
++      const success = message(
++        model,
++        [{ type: "text", text: "single-delivery" }],
++        "stop",
++        "secondary-success",
++      );
++      return result(
++        [
++          {
++            type: "text_delta",
++            contentIndex: 0,
++            delta: "single-delivery",
++            partial: success,
++          },
++          { type: "done", reason: "stop", message: success },
++        ],
++        success,
++      );
++    };
++    const { backend, agent, conversation, attempts } = await fixture(stream);
++
++    const sink = await collect(
++      await backend.createConversationMessageStream(conversation.id, {
++        agent_id: agent.id,
++        messages: [{ role: "user", content: "one inbound" }],
++      } as ConversationMessageCreateBody),
++    );
++    expect(textChunks(sink)).toBe("single-delivery");
++    expect(JSON.stringify(sink)).not.toContain("partial-primary");
++    expect(dispatches).toEqual([
++      { model: PRIMARY, messages: 1 },
++      { model: SECONDARY, messages: 1 },
++    ]);
++
++    const persisted = (
++      await backend.listConversationMessages(conversation.id, {
++        agent_id: agent.id,
++        order: "asc",
++      } as never)
++    ).getPaginatedItems();
++    expect(
++      persisted.filter((row) => row.message_type === "user_message"),
++    ).toHaveLength(1);
++    expect(JSON.stringify(persisted)).not.toContain("partial-primary");
++    expect(JSON.stringify(persisted)).toContain("single-delivery");
++    expect(
++      attempts
++        .filter((attempt) => attempt.outcome !== "started")
++        .map((attempt) => `${attempt.model}:${attempt.outcome}`),
++    ).toEqual([`${PRIMARY}:quota`, `${SECONDARY}:success`]);
++  });
++
++  test("keeps a completed file effect and tool result while only retrying the following inference", async () => {
++    const contexts: Context[] = [];
++    const dispatches: string[] = [];
++    const stream: PiStreamFunction = (model, context) => {
++      contexts.push(context);
++      dispatches.push(`${model.provider}/${model.id}`);
++      const hasToolResult = context.messages.some(
++        (entry) => entry.role === "toolResult",
++      );
++      if (!hasToolResult) {
++        const tool = message(
++          model,
++          [
++            {
++              type: "toolCall",
++              id: "count-file-once",
++              name: "SyntheticFileCounter",
++              arguments: { relativePath: "effect.log" },
++            },
++          ],
++          "toolUse",
++          "tool-request",
++        );
++        return result(
++          [
++            {
++              type: "toolcall_end",
++              contentIndex: 0,
++              toolCall: tool.content[0] as Extract<
++                AssistantMessage["content"][number],
++                { type: "toolCall" }
++              >,
++              partial: tool,
++            },
++            { type: "done", reason: "toolUse", message: tool },
++          ],
++          tool,
++        );
++      }
++      if (model.id === "gpt-5.5") {
++        const failure = quota(model);
++        return result(
++          [{ type: "error", reason: "error", error: failure }],
++          failure,
++        );
++      }
++      const success = message(
++        model,
++        [{ type: "text", text: "observed counter=1" }],
++        "stop",
++        "after-tool-secondary",
++      );
++      return result(
++        [
++          {
++            type: "text_delta",
++            contentIndex: 0,
++            delta: "observed counter=1",
++            partial: success,
++          },
++          { type: "done", reason: "stop", message: success },
++        ],
++        success,
++      );
++    };
++    const { root, backend, agent, conversation } = await fixture(stream);
++    const firstSink = await collect(
++      await backend.createConversationMessageStream(conversation.id, {
++        agent_id: agent.id,
++        messages: [{ role: "user", content: "count once" }],
++      } as ConversationMessageCreateBody),
++    );
++    expect(
++      firstSink.filter(
++        (chunk) => chunk.message_type === "approval_request_message",
++      ),
++    ).toHaveLength(1);
++
++    const effectPath = join(root, "effect.log");
++    await appendFile(effectPath, "1\n", "utf8");
++    const secondSink = await collect(
++      await backend.createConversationMessageStream(conversation.id, {
++        agent_id: agent.id,
++        messages: [
++          {
++            type: "approval",
++            approvals: [
++              {
++                type: "tool",
++                tool_call_id: "count-file-once",
++                status: "success",
++                tool_return: "counter=1",
++              },
++            ],
++          },
++        ],
++      } as never),
++    );
++
++    expect(textChunks(secondSink)).toBe("observed counter=1");
++    expect((await readFile(effectPath, "utf8")).trim().split("\n")).toEqual([
++      "1",
++    ]);
++    expect(dispatches).toEqual([PRIMARY, PRIMARY, SECONDARY]);
++    const fallbackContext = contexts.at(-1);
++    expect(
++      fallbackContext?.messages.some(
++        (entry) =>
++          entry.role === "toolResult" &&
++          JSON.stringify(entry.content).includes("counter=1"),
++      ),
++    ).toBe(true);
++  });
++
++  test("does not dispatch while approval is pending and preserves deny without executing the effect", async () => {
++    const dispatches: string[] = [];
++    const stream: PiStreamFunction = (model, context) => {
++      dispatches.push(`${model.provider}/${model.id}`);
++      const toolResult = context.messages.find(
++        (entry) => entry.role === "toolResult",
++      );
++      if (!toolResult) {
++        const tool = message(
++          model,
++          [
++            {
++              type: "toolCall",
++              id: "denied-file-effect",
++              name: "SyntheticFileCounter",
++              arguments: {},
++            },
++          ],
++          "toolUse",
++          "deny-request",
++        );
++        return result(
++          [
++            {
++              type: "toolcall_end",
++              contentIndex: 0,
++              toolCall: tool.content[0] as Extract<
++                AssistantMessage["content"][number],
++                { type: "toolCall" }
++              >,
++              partial: tool,
++            },
++            { type: "done", reason: "toolUse", message: tool },
++          ],
++          tool,
++        );
++      }
++      if (model.id === "gpt-5.5") {
++        const failure = quota(model);
++        return result(
++          [{ type: "error", reason: "error", error: failure }],
++          failure,
++        );
++      }
++      const success = message(
++        model,
++        [{ type: "text", text: "deny preserved" }],
++        "stop",
++        "deny-secondary",
++      );
++      return result(
++        [
++          {
++            type: "text_delta",
++            contentIndex: 0,
++            delta: "deny preserved",
++            partial: success,
++          },
++          { type: "done", reason: "stop", message: success },
++        ],
++        success,
++      );
++    };
++    const { root, backend, agent, conversation } = await fixture(stream);
++    await collect(
++      await backend.createConversationMessageStream(conversation.id, {
++        agent_id: agent.id,
++        messages: [{ role: "user", content: "request effect" }],
++      } as ConversationMessageCreateBody),
++    );
++    expect(dispatches).toEqual([PRIMARY]);
++
++    const sink = await collect(
++      await backend.createConversationMessageStream(conversation.id, {
++        agent_id: agent.id,
++        messages: [
++          {
++            type: "approval",
++            approvals: [
++              {
++                type: "tool",
++                tool_call_id: "denied-file-effect",
++                status: "error",
++                tool_return: "Denied by user",
++              },
++            ],
++          },
++        ],
++      } as never),
++    );
++    expect(textChunks(sink)).toBe("deny preserved");
++    expect(dispatches).toEqual([PRIMARY, PRIMARY, SECONDARY]);
++    await expect(readFile(join(root, "effect.log"), "utf8")).rejects.toThrow();
++  });
++});
+diff --git a/src/backend/native-inference-fallback.test.ts b/src/backend/native-inference-fallback.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d485d4c675c74ae00ee7b88cc3d692a207e54987
+--- /dev/null
++++ b/src/backend/native-inference-fallback.test.ts
+@@ -0,0 +1,635 @@
++import { describe, expect, test } from "bun:test";
++import type {
++  AssistantMessage,
++  AssistantMessageEvent,
++  Model,
++} from "@earendil-works/pi-ai";
++import {
++  classifyNativeInferenceFailure,
++  type NativeInferenceFailureCategory,
++  type NativeInferenceFallbackPolicy,
++  type NativeInferenceModelAttempt,
++  parseNativeInferenceProviderErrorEnvelope,
++} from "@/backend/dev/native-inference-fallback";
++import {
++  PiStreamAdapter,
++  type PiStreamFunction,
++} from "@/backend/dev/pi-stream-adapter";
++import type {
++  ProviderStreamEvent,
++  ProviderTurnInput,
++} from "@/backend/dev/provider-turn-executor";
++import { emptyLocalUsage } from "@/backend/local/local-message";
++
++const PRIMARY = "openai/gpt-5.5";
++const SECONDARY = "openai/gpt-5.4";
++
++function input(overrides: Partial<ProviderTurnInput> = {}): ProviderTurnInput {
++  return {
++    conversationId: "local-conv-new-channel",
++    agentId: "agent-local-clara-synthetic",
++    agent: {
++      id: "agent-local-clara-synthetic",
++      name: "Clara synthetic",
++      description: null,
++      system: "system",
++      tags: [],
++      model: PRIMARY,
++      model_settings: { reasoning_effort: "low" },
++    },
++    body: {
++      messages: [{ role: "user", content: "same input" }],
++    } as never,
++    history: [],
++    uiMessages: [
++      {
++        id: "ui-input-otid-1",
++        role: "user",
++        content: "same input",
++        timestamp: 1,
++      },
++    ],
++    clientTools: [],
++    clientSkills: [],
++    ...overrides,
++  };
++}
++
++function assistantMessage(
++  model: Model<string>,
++  content: AssistantMessage["content"],
++  stopReason: AssistantMessage["stopReason"] = "stop",
++): AssistantMessage {
++  return {
++    role: "assistant",
++    content,
++    api: model.api,
++    provider: model.provider,
++    model: model.id,
++    usage: emptyLocalUsage(),
++    stopReason,
++    timestamp: Date.now(),
++  };
++}
++
++function quotaMessage(
++  model: Model<string>,
++  content: AssistantMessage["content"] = [],
++): AssistantMessage {
++  return {
++    ...assistantMessage(model, content, "error"),
++    errorMessage:
++      '429: {"code":"1310","message":"Weekly/Monthly Limit Exhausted"}',
++  };
++}
++
++function streamFromEvents(
++  events: AssistantMessageEvent[],
++  finalMessage: AssistantMessage,
++): ReturnType<PiStreamFunction> {
++  async function* iterator() {
++    for (const event of events) yield event;
++  }
++  return Object.assign(iterator(), { result: async () => finalMessage });
++}
++
++function quotaThenSuccessStream(dispatches: string[]): PiStreamFunction {
++  return (model) => {
++    dispatches.push(`${model.provider}/${model.id}`);
++    if (model.id === "gpt-5.5") {
++      const partial = quotaMessage(model, [
++        { type: "text", text: "discard me" },
++        {
++          type: "toolCall",
++          id: "discarded-call",
++          name: "Write",
++          arguments: { path: "must-not-run" },
++        },
++      ]);
++      return streamFromEvents(
++        [
++          {
++            type: "text_delta",
++            contentIndex: 0,
++            delta: "discard me",
++            partial,
++          },
++          {
++            type: "toolcall_end",
++            contentIndex: 1,
++            toolCall: partial.content[1] as Extract<
++              AssistantMessage["content"][number],
++              { type: "toolCall" }
++            >,
++            partial,
++          },
++          { type: "error", reason: "error", error: partial },
++        ],
++        partial,
++      );
++    }
++    const success = assistantMessage(model, [
++      { type: "text", text: "secondary answer" },
++    ]);
++    return streamFromEvents(
++      [
++        {
++          type: "text_delta",
++          contentIndex: 0,
++          delta: "secondary answer",
++          partial: success,
++        },
++        { type: "done", reason: "stop", message: success },
++      ],
++      success,
++    );
++  };
++}
++
++function effectfulSuccessStream(): PiStreamFunction {
++  return (model) => {
++    const success = assistantMessage(
++      model,
++      [
++        { type: "text", text: "text-before-invalidation" },
++        {
++          type: "toolCall",
++          id: "write-after-invalidation",
++          name: "Write",
++          arguments: { path: "must-not-run" },
++        },
++      ],
++      "toolUse",
++    );
++    return streamFromEvents(
++      [
++        {
++          type: "text_delta",
++          contentIndex: 0,
++          delta: "text-before-invalidation",
++          partial: success,
++        },
++        {
++          type: "toolcall_end",
++          contentIndex: 1,
++          toolCall: success.content[1] as Extract<
++            AssistantMessage["content"][number],
++            { type: "toolCall" }
++          >,
++          partial: success,
++        },
++        { type: "done", reason: "toolUse", message: success },
++      ],
++      success,
++    );
++  };
++}
++
++function syntheticPolicy(
++  options: {
++    current?: () => boolean;
++    eligible?: (input: ProviderTurnInput) => boolean;
++    maxBufferedBytes?: number;
++    attempts?: NativeInferenceModelAttempt[];
++  } = {},
++): NativeInferenceFallbackPolicy {
++  return {
++    maxBufferedBytes: options.maxBufferedBytes,
++    isAttemptCurrent: () => options.current?.() ?? true,
++    resolveDestination(context, failure, attemptedModels) {
++      if (failure.category !== "quota_exhausted") return null;
++      if (options.eligible && !options.eligible(context.input)) return null;
++      if (attemptedModels.includes(SECONDARY)) return null;
++      return {
++        model: SECONDARY,
++        modelSettings: { reasoning_effort: "xhigh" },
++      };
++    },
++    onModelAttempt(attempt) {
++      options.attempts?.push(attempt);
++    },
++  };
++}
++
++async function collect(adapter: PiStreamAdapter, turnInput = input()) {
++  const events: ProviderStreamEvent[] = [];
++  let error: unknown;
++  try {
++    for await (const event of adapter.stream(turnInput)) events.push(event);
++  } catch (caught) {
++    error = caught;
++  }
++  return { events, error };
++}
++
++function outputText(events: ProviderStreamEvent[]): string {
++  return events
++    .filter(
++      (
++        event,
++      ): event is Extract<ProviderStreamEvent, { type: "provider-part" }> =>
++        event.type === "provider-part" && event.part.type === "text_delta",
++    )
++    .map((event) => (event.part.type === "text_delta" ? event.part.delta : ""))
++    .join("");
++}
++
++describe("native inference fallback classifier", () => {
++  test("uses structured status and code already preserved at the provider boundary", () => {
++    expect(
++      classifyNativeInferenceFailure({
++        statusCode: 429,
++        code: 1310,
++        provider: "zai",
++        message: "opaque",
++      }),
++    ).toEqual({
++      category: "quota_exhausted",
++      status: 429,
++      code: "1310",
++      provider: "zai",
++    });
++  });
++
++  test("strictly parses only a complete provider HTTP envelope", () => {
++    const envelope = parseNativeInferenceProviderErrorEnvelope(
++      "zai",
++      '429: {"code":"1310","message":"Weekly/Monthly Limit Exhausted"}',
++    );
++    expect(envelope).toEqual({
++      source: "pi_provider_error",
++      provider: "zai",
++      status: 429,
++      code: "1310",
++    });
++    expect(classifyNativeInferenceFailure(envelope).category).toBe(
++      "quota_exhausted",
++    );
++    expect(
++      parseNativeInferenceProviderErrorEnvelope(
++        "zai",
++        'prefix 429: {"code":"1310"}',
++      ),
++    ).toBeUndefined();
++    expect(
++      parseNativeInferenceProviderErrorEnvelope("zai", '429: {"code":'),
++    ).toBeUndefined();
++    expect(
++      parseNativeInferenceProviderErrorEnvelope(
++        "zai",
++        "429 status code (no body)",
++      ),
++    ).toBeUndefined();
++  });
++
++  test.each([
++    [{ message: "quoted HTTP 429 code 1310 quota" }, "other"],
++    [new Error('429: {"code":"1310"}'), "other"],
++    ['429: {"code":"1310"}', "other"],
++    [{ status: 429, code: 14290 }, "transient_provider"],
++    [{ status: 401, code: 1310 }, "authentication"],
++    [{ status: 403, code: 1310 }, "permission"],
++    [{ message: "silence" }, "other"],
++    [{ status: 500, code: "tool_failure" }, "other"],
++  ])("does not infer quota from negative case %#", (failure, category) => {
++    expect(classifyNativeInferenceFailure(failure).category).toBe(
++      category as NativeInferenceFailureCategory,
++    );
++  });
++});
++
++describe("native inference fallback buffered dispatch", () => {
++  test("revalidates after the awaited LLM-start hook before dispatch", async () => {
++    let current = true;
++    let dispatches = 0;
++    const adapter = new PiStreamAdapter({
++      stream: (...args) => {
++        dispatches += 1;
++        return effectfulSuccessStream()(...args);
++      },
++      onLlmStart: async () => {
++        current = false;
++      },
++      nativeInferenceFallback: syntheticPolicy({ current: () => current }),
++    });
++    const result = await collect(adapter);
++    expect(result.error).toMatchObject({
++      name: "NativeInferenceAttemptInvalidatedError",
++    });
++    expect(dispatches).toBe(0);
++    expect(result.events).toHaveLength(0);
++  });
++  test.each(["abort", "owner", "manual"] as const)(
++    "revalidates %s between flushed events before a tool can escape",
++    async (invalidation) => {
++      const controller = new AbortController();
++      let ownerCurrent = true;
++      let manualSelectionCurrent = true;
++      const adapter = new PiStreamAdapter({
++        stream: effectfulSuccessStream(),
++        abortSignal: controller.signal,
++        nativeInferenceFallback: {
++          resolveDestination: () => null,
++          isAttemptCurrent: () => ownerCurrent && manualSelectionCurrent,
++        },
++      });
++      const iterator = adapter.stream(input())[Symbol.asyncIterator]();
++      const first = await iterator.next();
++      expect(first.done).toBe(false);
++      expect(
++        !first.done && first.value.type === "provider-part"
++          ? first.value.part.type
++          : undefined,
++      ).toBe("text_delta");
++
++      if (invalidation === "abort") controller.abort();
++      if (invalidation === "owner") ownerCurrent = false;
++      if (invalidation === "manual") manualSelectionCurrent = false;
++
++      await expect(iterator.next()).rejects.toThrow(
++        "Native inference attempt was invalidated",
++      );
++    },
++  );
++
++  test.each([
++    '429: {"code":',
++    '429: {"code":"14290","message":"retry-after-ms: 0 "}',
++    '401: {"code":"1310","message":"auth"}',
++    '403: {"code":"1310","message":"permission"}',
++    "429 status code (no body)",
++    "quoted 429 code 1310",
++  ])(
++    "does not fall back for a non-qualifying provider envelope: %s",
++    async (errorMessage) => {
++      const dispatches: string[] = [];
++      let resolutions = 0;
++      const stream: PiStreamFunction = (model) => {
++        dispatches.push(`${model.provider}/${model.id}`);
++        const failure = {
++          ...assistantMessage(model, [], "error"),
++          errorMessage,
++        };
++        return streamFromEvents(
++          [{ type: "error", reason: "error", error: failure }],
++          failure,
++        );
++      };
++      const policy = syntheticPolicy();
++      const originalResolve = policy.resolveDestination;
++      policy.resolveDestination = (...args) => {
++        resolutions += 1;
++        return originalResolve(...args);
++      };
++      const { events, error } = await collect(
++        new PiStreamAdapter({ stream, nativeInferenceFallback: policy }),
++      );
++      expect(error).toBeDefined();
++      expect(events.every((event) => event.type === "letta-chunk")).toBe(true);
++      expect(dispatches).toEqual(
++        errorMessage.includes("14290")
++          ? [PRIMARY, PRIMARY, PRIMARY, PRIMARY]
++          : [PRIMARY],
++      );
++      expect(resolutions).toBe(0);
++    },
++  );
++
++  test("discards partial primary output and completes the same input on an approved secondary", async () => {
++    const dispatches: string[] = [];
++    const attempts: NativeInferenceModelAttempt[] = [];
++    const turnInput = input();
++    const { events, error } = await collect(
++      new PiStreamAdapter({
++        stream: quotaThenSuccessStream(dispatches),
++        nativeInferenceFallback: syntheticPolicy({ attempts }),
++      }),
++      turnInput,
++    );
++
++    expect(error).toBeUndefined();
++    expect(dispatches).toEqual([PRIMARY, SECONDARY]);
++    expect(outputText(events)).toBe("secondary answer");
++    expect(JSON.stringify(events)).not.toContain("discard me");
++    expect(JSON.stringify(events)).not.toContain("discarded-call");
++    expect(turnInput.body).toEqual({
++      messages: [{ role: "user", content: "same input" }],
++    });
++    expect(turnInput.uiMessages.map((message) => message.id)).toEqual([
++      "ui-input-otid-1",
++    ]);
++    expect(attempts.filter((attempt) => attempt.outcome !== "started")).toEqual(
++      [
++        expect.objectContaining({
++          model: PRIMARY,
++          outcome: "quota",
++          status: 429,
++          code: "1310",
++        }),
++        expect.objectContaining({ model: SECONDARY, outcome: "success" }),
++      ],
++    );
++    expect(
++      attempts.find(
++        (attempt) =>
++          attempt.model === SECONDARY && attempt.outcome === "started",
++      )?.effort,
++    ).toBe("xhigh");
++  });
++
++  test("fails closed when the destination is incompatible or unapproved", async () => {
++    const dispatches: string[] = [];
++    const { events, error } = await collect(
++      new PiStreamAdapter({
++        stream: quotaThenSuccessStream(dispatches),
++        nativeInferenceFallback: {
++          resolveDestination: () => null,
++        },
++      }),
++    );
++    expect(String(error)).toContain("Weekly/Monthly Limit Exhausted");
++    expect(dispatches).toEqual([PRIMARY]);
++    expect(events).toEqual([]);
++  });
++
++  test("rejects an unavailable destination before provider dispatch", async () => {
++    const dispatches: string[] = [];
++    const { events, error } = await collect(
++      new PiStreamAdapter({
++        stream: quotaThenSuccessStream(dispatches),
++        nativeInferenceFallback: {
++          resolveDestination: () => ({
++            model: "openai/not-an-available-model",
++            modelSettings: { reasoning_effort: "xhigh" },
++          }),
++        },
++      }),
++    );
++    expect(error).toBeDefined();
++    expect(dispatches).toEqual([PRIMARY]);
++    expect(events).toEqual([]);
++  });
++
++  test("fails closed before dispatch when manual selection or ownership changes", async () => {
++    const dispatches: string[] = [];
++    let current = true;
++    const policy = syntheticPolicy({
++      current: () => current,
++    });
++    policy.resolveDestination = (...args) => {
++      current = false;
++      return syntheticPolicy().resolveDestination(...args);
++    };
++    const { events, error } = await collect(
++      new PiStreamAdapter({
++        stream: quotaThenSuccessStream(dispatches),
++        nativeInferenceFallback: policy,
++      }),
++    );
++    expect(error?.constructor.name).toBe(
++      "NativeInferenceAttemptInvalidatedError",
++    );
++    expect(dispatches).toEqual([PRIMARY]);
++    expect(events).toEqual([]);
++  });
++
++  test("does not dispatch a fallback after the owning turn is aborted", async () => {
++    const dispatches: string[] = [];
++    const controller = new AbortController();
++    const policy = syntheticPolicy();
++    policy.resolveDestination = (...args) => {
++      controller.abort();
++      return syntheticPolicy().resolveDestination(...args);
++    };
++    const { events, error } = await collect(
++      new PiStreamAdapter({
++        stream: quotaThenSuccessStream(dispatches),
++        abortSignal: controller.signal,
++        nativeInferenceFallback: policy,
++      }),
++    );
++    expect(error?.constructor.name).toBe(
++      "NativeInferenceAttemptInvalidatedError",
++    );
++    expect(dispatches).toEqual([PRIMARY]);
++    expect(events).toEqual([]);
++  });
++
++  test("fails visibly without retry after the bounded output buffer is exceeded", async () => {
++    const dispatches: string[] = [];
++    const { events, error } = await collect(
++      new PiStreamAdapter({
++        stream: quotaThenSuccessStream(dispatches),
++        nativeInferenceFallback: syntheticPolicy({ maxBufferedBytes: 10 }),
++      }),
++    );
++    expect(error?.constructor.name).toBe("NativeInferenceBufferLimitError");
++    expect(dispatches).toEqual([PRIMARY]);
++    expect(events).toEqual([]);
++  });
++
++  test("terminates a finite chain when the secondary also exhausts quota", async () => {
++    const dispatches: string[] = [];
++    const stream: PiStreamFunction = (model) => {
++      dispatches.push(`${model.provider}/${model.id}`);
++      const failure = quotaMessage(model);
++      return streamFromEvents(
++        [{ type: "error", reason: "error", error: failure }],
++        failure,
++      );
++    };
++    const { events, error } = await collect(
++      new PiStreamAdapter({
++        stream,
++        nativeInferenceFallback: syntheticPolicy(),
++      }),
++    );
++    expect(String(error)).toContain("Weekly/Monthly Limit Exhausted");
++    expect(dispatches).toEqual([PRIMARY, SECONDARY]);
++    expect(events).toEqual([]);
++  });
++
++  test("applies identity and proven-delegation eligibility without conversation enumeration", async () => {
++    const eligible = (turnInput: ProviderTurnInput) => {
++      if (turnInput.agentId === "agent-local-clara-synthetic") return true;
++      const lineage = (
++        turnInput.body as { delegation?: Record<string, unknown> }
++      ).delegation;
++      return (
++        lineage?.parentAgentId === "agent-local-clara-synthetic" &&
++        lineage.receipt === "receipt-live" &&
++        lineage.owner === "owner-live" &&
++        lineage.cycle !== true &&
++        turnInput.agentId !== "agent-local-nina-synthetic"
++      );
++    };
++
++    for (const [name, turnInput, expectedCalls] of [
++      ["new channel", input({ conversationId: "never-configured" }), 2],
++      [
++        "delegated child",
++        input({
++          agentId: "agent-local-child-synthetic",
++          body: {
++            messages: [{ role: "user", content: "child task" }],
++            delegation: {
++              parentAgentId: "agent-local-clara-synthetic",
++              receipt: "receipt-live",
++              owner: "owner-live",
++            },
++          } as never,
++        }),
++        2,
++      ],
++      [
++        "unproven peer",
++        input({
++          agentId: "agent-local-peer-synthetic",
++          body: {
++            delegation: { parentAgentId: "agent-local-clara-synthetic" },
++          } as never,
++        }),
++        1,
++      ],
++      [
++        "excluded agent",
++        input({
++          agentId: "agent-local-nina-synthetic",
++          body: {
++            delegation: {
++              parentAgentId: "agent-local-clara-synthetic",
++              receipt: "receipt-live",
++              owner: "owner-live",
++            },
++          } as never,
++        }),
++        1,
++      ],
++      [
++        "cyclic lineage",
++        input({
++          agentId: "agent-local-child-synthetic",
++          body: {
++            delegation: {
++              parentAgentId: "agent-local-clara-synthetic",
++              receipt: "receipt-live",
++              owner: "owner-live",
++              cycle: true,
++            },
++          } as never,
++        }),
++        1,
++      ],
++    ] as const) {
++      const dispatches: string[] = [];
++      await collect(
++        new PiStreamAdapter({
++          stream: quotaThenSuccessStream(dispatches),
++          nativeInferenceFallback: syntheticPolicy({ eligible }),
++        }),
++        turnInput,
++      );
++      expect(dispatches.length, name).toBe(expectedCalls);
++    }
++  });
++});
+diff --git a/src/test-utils/fallback-v4-listener.ts b/src/test-utils/fallback-v4-listener.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..808cbbd82a6e8a558df3f744bc677265819545a4
+--- /dev/null
++++ b/src/test-utils/fallback-v4-listener.ts
+@@ -0,0 +1,89 @@
++import { mkdir } from "node:fs/promises";
++import { join } from "node:path";
++import { __testSetBackend, type Backend } from "@/backend";
++import { settingsManager } from "@/settings-manager";
++import { getOrCreateScopedRuntime } from "@/websocket/listener/conversation-runtime";
++import { createRuntime } from "@/websocket/listener/lifecycle";
++import {
++  __listenerModAdapterTestUtils,
++  createListenerModAdapter,
++  disposeListenerModAdapter,
++} from "@/websocket/listener/mod-adapter";
++import { getOrCreateConversationPermissionModeStateRef } from "@/websocket/listener/permission-mode";
++import { setActiveRuntime } from "@/websocket/listener/runtime";
++import type { ListenerTransport } from "@/websocket/listener/transport";
++import { handleIncomingMessage } from "@/websocket/listener/turn";
++import { __listenerWarmupTestUtils } from "@/websocket/listener/warmup";
++
++/** One real listener submission; no direct tool execution or result injection. */
++export async function runFallbackV4Listener(
++  backend: Backend,
++  agentId: string,
++  conversationId: string,
++  root: string,
++) {
++  __testSetBackend(backend);
++  await settingsManager.reset();
++  await settingsManager.initialize();
++  const modDir = join(root, "mods");
++  const cacheDir = join(root, "cache");
++  await mkdir(modDir);
++  await mkdir(cacheDir);
++  __listenerWarmupTestUtils.setWarmupDepsForTests({
++    ensureMemfsSyncedForAgent: async () => false,
++    ensureSecretsHydratedForAgent: async () => {},
++  });
++  __listenerModAdapterTestUtils.setEnsureMemfsSyncedForAgentForTests(
++    async () => false,
++  );
++  const listener = createRuntime();
++  listener.modAdapter = createListenerModAdapter({
++    globalModsDirectory: modDir,
++    cacheDirectory: cacheDir,
++  });
++  setActiveRuntime(listener);
++  const runtime = getOrCreateScopedRuntime(listener, agentId, conversationId);
++  const mode = getOrCreateConversationPermissionModeStateRef(
++    listener,
++    agentId,
++    conversationId,
++  );
++  mode.mode = "unrestricted";
++  const payloads: Record<string, unknown>[] = [];
++  const transport: ListenerTransport = {
++    kind: "local",
++    bufferedAmount: 0,
++    isOpen: () => true,
++    send: (payload: string) => {
++      payloads.push(JSON.parse(payload));
++    },
++  };
++  try {
++    await handleIncomingMessage(
++      {
++        type: "message",
++        agentId,
++        conversationId,
++        processOwnedTurn: true,
++        excludeInteractiveTools: true,
++        messages: [
++          {
++            role: "user",
++            content: "write once then answer",
++            client_message_id: "v4-task-input",
++          },
++        ],
++      },
++      transport,
++      runtime,
++      undefined,
++      undefined,
++      "v4-native-task",
++    );
++    return { payloads, lifecycle: runtime.turnLifecycle.snapshot().kind };
++  } finally {
++    disposeListenerModAdapter(listener);
++    __listenerWarmupTestUtils.resetWarmupDepsForTests();
++    await settingsManager.reset();
++  }
++}
+diff --git a/src/test-utils/fallback-v4-scenario.ts b/src/test-utils/fallback-v4-scenario.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a5d40152d65ca2050c203297e8036e3f9b0fc15f
+--- /dev/null
++++ b/src/test-utils/fallback-v4-scenario.ts
+@@ -0,0 +1,405 @@
++import assert from "node:assert/strict";
++import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
++import { createServer } from "node:http";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { getBackendForMode } from "@/backend";
++import {
++  registerPiProvider,
++  unregisterPiProvider,
++} from "@/backend/dev/pi-provider-mod-registry";
++import {
++  disableLocalBackendMemfsForProcess,
++  resetLocalBackendMemfsForProcess,
++} from "@/backend/local/paths";
++import {
++  clearTools,
++  executeTool,
++  getClientToolsFromRegistry,
++  loadSpecificTools,
++} from "@/tools/manager";
++
++export interface FallbackScenarioOptions {
++  listener?: boolean;
++  partial?: boolean;
++  manualChange?: boolean;
++  lowPrimaryEffort?: boolean;
++  unlisted?: boolean;
++  missingReserve?: boolean;
++  toolsIncompatible?: boolean;
++  enabled?: boolean;
++  status?: number;
++  incompatible?: boolean;
++  cancel?: boolean;
++  timeout?: boolean;
++}
++
++/** Real factory + real pi-ai HTTP drivers + real Write tool. No effect is written by this harness. */
++export async function runFallbackV4Scenario(
++  options: FallbackScenarioOptions = {},
++) {
++  const root = await mkdtemp(join(tmpdir(), "fallback-v4-"));
++  const storage = join(root, "backend");
++  await mkdir(storage);
++  const effect = join(root, "effect.txt");
++  const effectTool = options.listener ? "Bash" : "Write";
++  const requests: Array<{
++    model: string;
++    messages: unknown;
++    effort: unknown;
++    credentialMatchedReference: boolean;
++  }> = [];
++  let invalidateSelection = async () => {};
++  const server = createServer((req, res) => {
++    const data: Buffer[] = [];
++    req.on("data", (chunk) => data.push(Buffer.from(chunk)));
++    req.on("end", async () => {
++      const body = JSON.parse(Buffer.concat(data).toString());
++      requests.push({
++        model: body.model,
++        messages: body.messages,
++        effort: body.reasoning_effort,
++        credentialMatchedReference:
++          req.headers.authorization === `Bearer fake-v4-${body.model}`,
++      });
++      const hasToolResult = body.messages.some(
++        (m: { role: string }) => m.role === "tool",
++      );
++      if (body.model === "primary" && hasToolResult && !options.partial) {
++        if (options.timeout || options.cancel) return;
++        if (options.manualChange) await invalidateSelection();
++        res.writeHead(options.status ?? 429, {
++          "content-type": "application/json",
++        });
++        res.end(
++          JSON.stringify({
++            error: { code: "1310", message: "Weekly/Monthly Limit Exhausted" },
++          }),
++        );
++        return;
++      }
++      res.writeHead(200, { "content-type": "text/event-stream" });
++      const send = (delta: unknown, finish_reason: string | null) =>
++        res.write(
++          `data: ${JSON.stringify({
++            id: `response-${requests.length}`,
++            object: "chat.completion.chunk",
++            created: 1,
++            model: body.model,
++            choices: [{ index: 0, delta, finish_reason }],
++          })}\n\n`,
++        );
++      if (body.model === "primary" && hasToolResult && options.partial) {
++        send({ role: "assistant", content: "must-not-escape-primary" }, null);
++        send(
++          {
++            tool_calls: [
++              {
++                index: 0,
++                id: "must-not-run",
++                type: "function",
++                function: {
++                  name: "Write",
++                  arguments: JSON.stringify({
++                    file_path: join(root, "forbidden.txt"),
++                    content: "must not execute",
++                  }),
++                },
++              },
++            ],
++          },
++          null,
++        );
++        res.end(
++          `data: ${JSON.stringify({ error: { message: '429: {"code":"1310","message":"Quota after partial SSE"}' } })}\n\n`,
++        );
++        return;
++      }
++      if (!hasToolResult) {
++        send(
++          {
++            role: "assistant",
++            tool_calls: [
++              {
++                index: 0,
++                id: "write-once",
++                type: "function",
++                function: {
++                  name: effectTool,
++                  arguments: JSON.stringify(
++                    effectTool === "Bash"
++                      ? {
++                          command: `printf 'one real tool effect\\n' >> "${effect}"`,
++                          description: "Append one isolated test effect",
++                        }
++                      : {
++                          file_path: effect,
++                          content: "one real tool effect\n",
++                        },
++                  ),
++                },
++              },
++            ],
++          },
++          null,
++        );
++        send({}, "tool_calls");
++      } else {
++        send({ role: "assistant", content: "task-completed-on-reserve" }, null);
++        send({}, "stop");
++      }
++      res.end("data: [DONE]\n\n");
++    });
++  });
++  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
++  const address = server.address();
++  assert(address && typeof address !== "string");
++  const baseUrl = `http://127.0.0.1:${address.port}`;
++  const realFetch = globalThis.fetch;
++  globalThis.fetch = (async (
++    input: Parameters<typeof fetch>[0],
++    init?: RequestInit,
++  ) => {
++    const url = new URL(
++      typeof input === "string"
++        ? input
++        : input instanceof URL
++          ? input.href
++          : input.url,
++    );
++    if (
++      url.hostname !== "127.0.0.1" &&
++      url.hostname !== "localhost" &&
++      url.hostname !== "[::1]"
++    )
++      throw new Error("Non-loopback fetch blocked in V4 proof");
++    return realFetch(input, init);
++  }) as typeof fetch;
++  const previousStorage = process.env.LETTA_LOCAL_BACKEND_DIR;
++  const previousMode = process.env.LETTA_LOCAL_BACKEND_EXPERIMENTAL;
++  process.env.LETTA_LOCAL_BACKEND_EXPERIMENTAL = "1";
++  process.env.LETTA_LOCAL_BACKEND_DIR = storage;
++  disableLocalBackendMemfsForProcess();
++  for (const provider of ["v4-primary", "v4-reserve"]) {
++    const id = provider === "v4-primary" ? "primary" : "reserve";
++    registerPiProvider(provider, {
++      api: "openai-completions",
++      baseUrl,
++      apiKey: `fake-${provider}`,
++      models: [
++        {
++          id,
++          name: id,
++          reasoning: true,
++          input: ["text"],
++          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
++          contextWindow:
++            provider === "v4-reserve" && options.incompatible ? 4096 : 128000,
++          maxTokens: 4096,
++        },
++      ],
++    });
++  }
++  try {
++    const bootstrap = getBackendForMode("local");
++    const agent = await bootstrap.createAgent({
++      name: "fallback-v4-fixture",
++      model: "v4-primary/primary",
++      model_settings: {
++        context_window_limit: 128000,
++        max_tokens: 4096,
++        reasoning_effort: options.lowPrimaryEffort ? "low" : "high",
++      },
++    } as never);
++    const conversation = await bootstrap.createConversation({
++      agent_id: agent.id,
++    } as never);
++    await writeFile(
++      join(storage, "native-inference-fallback.json"),
++      JSON.stringify({
++        version: 1,
++        enabled: options.enabled !== false,
++        owner: "native-inference",
++        externalController: "disabled-for-scopes",
++        timeoutMs: options.timeout ? 80 : 5000,
++        scopes: [
++          {
++            agentId: options.unlisted ? "agent-local-unlisted" : agent.id,
++            lineage: "self",
++            chain: [
++              {
++                model: "v4-primary/primary",
++                provider: "v4-primary",
++                credentialProvider: "v4-primary",
++                contextWindow: 128000,
++                maxOutputTokens: 4096,
++                effort: "high",
++                tools: true,
++                input: ["text"],
++              },
++              {
++                model: options.missingReserve
++                  ? "v4-reserve/missing"
++                  : "v4-reserve/reserve",
++                provider: "v4-reserve",
++                credentialProvider: "v4-reserve",
++                contextWindow: 128000,
++                maxOutputTokens: 4096,
++                effort: "high",
++                tools: !options.toolsIncompatible,
++                input: ["text"],
++              },
++            ],
++          },
++        ],
++      }),
++    );
++    // The actual production factory, NOT a directly constructed adapter/controller/backend.
++    const backend = getBackendForMode("local");
++    invalidateSelection = async () => {
++      await backend.updateConversation(conversation.id, {
++        model: "v4-reserve/reserve",
++      } as never);
++    };
++    await loadSpecificTools([effectTool]);
++    if (options.listener) {
++      const { runFallbackV4Listener } = await import("./fallback-v4-listener");
++      const listener = await runFallbackV4Listener(
++        backend,
++        agent.id,
++        conversation.id,
++        root,
++      );
++      const history = (
++        await backend.listConversationMessages(conversation.id, {
++          limit: 100,
++          order: "asc",
++        } as never)
++      ).getPaginatedItems();
++      const content = await readFile(effect, "utf8");
++      return {
++        runtime: process.versions.bun
++          ? `bun ${process.versions.bun}`
++          : `node ${process.version}`,
++        options,
++        root,
++        taskId: "v4-task-input",
++        agentId: agent.id,
++        conversationId: conversation.id,
++        requests,
++        effects: history.filter((m) => m.message_type === "tool_return_message")
++          .length,
++        toolReturn: "listener-executed",
++        effect: content,
++        chunks: history as unknown as Array<Record<string, unknown>>,
++        history,
++        listener,
++      };
++    }
++    const chunks: Array<Record<string, unknown>> = [];
++    const body = {
++      agent_id: agent.id,
++      client_tools: getClientToolsFromRegistry(),
++      messages: [
++        {
++          role: "user",
++          content: "write once then answer",
++          otid: "v4-task-input",
++          client_message_id: "v4-task-input",
++        },
++      ],
++    };
++    const first = await backend.createConversationMessageStream(
++      conversation.id,
++      body as never,
++    );
++    for await (const chunk of first)
++      chunks.push(chunk as unknown as Record<string, unknown>);
++    const approval = chunks.find(
++      (c) => c.message_type === "approval_request_message",
++    ) as
++      | {
++          tool_call?: { tool_call_id: string; name: string; arguments: string };
++        }
++      | undefined;
++    const call = approval?.tool_call;
++    assert(
++      call,
++      `actual provider must produce a tool call: ${JSON.stringify(chunks)}`,
++    );
++    let effects = 0;
++    const result = await executeTool(call.name, JSON.parse(call.arguments), {
++      toolCallId: call.tool_call_id,
++      onFileWrite: () => {
++        effects += 1;
++      },
++    });
++    assert.equal(result.status, "success", JSON.stringify(result));
++    const next = await backend.createConversationMessageStream(
++      conversation.id,
++      {
++        agent_id: agent.id,
++        client_tools: getClientToolsFromRegistry(),
++        messages: [
++          {
++            type: "approval",
++            otid: "v4-approval-input",
++            approvals: [
++              {
++                type: "tool",
++                tool_call_id: call.tool_call_id,
++                tool_return: result.toolReturn,
++                status: result.status,
++              },
++            ],
++          },
++        ],
++      } as never,
++    );
++    const timer = options.cancel
++      ? setTimeout(() => next.controller.abort(), 50)
++      : undefined;
++    try {
++      for await (const chunk of next)
++        chunks.push(chunk as unknown as Record<string, unknown>);
++    } finally {
++      if (timer) clearTimeout(timer);
++    }
++    const history = await backend.listConversationMessages(conversation.id, {
++      limit: 100,
++      order: "asc",
++    } as never);
++    const report = {
++      listener: undefined,
++      runtime: process.versions.bun
++        ? `bun ${process.versions.bun}`
++        : `node ${process.version}`,
++      options,
++      root,
++      taskId: "v4-task-input",
++      agentId: agent.id,
++      conversationId: conversation.id,
++      requests,
++      effects,
++      toolReturn: result.status,
++      effect: await readFile(effect, "utf8"),
++      chunks,
++      history: history.getPaginatedItems(),
++    };
++    return report;
++  } finally {
++    globalThis.fetch = realFetch;
++    clearTools();
++    unregisterPiProvider("v4-primary");
++    unregisterPiProvider("v4-reserve");
++    resetLocalBackendMemfsForProcess();
++    if (previousMode === undefined)
++      delete process.env.LETTA_LOCAL_BACKEND_EXPERIMENTAL;
++    else process.env.LETTA_LOCAL_BACKEND_EXPERIMENTAL = previousMode;
++    if (previousStorage === undefined)
++      delete process.env.LETTA_LOCAL_BACKEND_DIR;
++    else process.env.LETTA_LOCAL_BACKEND_DIR = previousStorage;
++    server.closeAllConnections();
++    await new Promise<void>((resolve) => server.close(() => resolve()));
++  }
++}
+diff --git a/src/websocket/listener/native-fallback-v4.test.ts b/src/websocket/listener/native-fallback-v4.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e6b32bb0d9f33e49491b262aeddf401bb9916f2
+--- /dev/null
++++ b/src/websocket/listener/native-fallback-v4.test.ts
+@@ -0,0 +1,55 @@
++import { expect, test } from "bun:test";
++import { existsSync } from "node:fs";
++import { join } from "node:path";
++import { runFallbackV4Scenario } from "@/test-utils/fallback-v4-scenario";
++
++test.each([false, true])(
++  "one listener turn and real Bash append; partial SSE before quota=%s",
++  async (partial) => {
++    const report = await runFallbackV4Scenario({ listener: true, partial });
++    expect(existsSync(join(report.root, "forbidden.txt"))).toBe(false);
++    expect(JSON.stringify(report.listener?.payloads)).not.toContain(
++      "must-not-escape-primary",
++    );
++    expect(
++      report.requests.every((request) => request.credentialMatchedReference),
++    ).toBe(true);
++    expect(report.requests.map((request) => request.model)).toEqual([
++      "primary",
++      "primary",
++      "reserve",
++    ]);
++    expect(report.requests[1]?.messages).toEqual(report.requests[2]?.messages);
++    expect(report.requests.map((request) => request.effort)).toEqual([
++      "high",
++      "high",
++      "high",
++    ]);
++    expect(report.listener?.lifecycle).toBe("idle");
++    const deltas =
++      report.listener?.payloads.map(
++        (payload) => payload.delta as Record<string, unknown> | undefined,
++      ) ?? [];
++    expect(
++      deltas.filter((delta) => delta?.message_type === "client_tool_start"),
++    ).toHaveLength(1);
++    expect(
++      deltas.filter((delta) => delta?.message_type === "client_tool_end"),
++    ).toHaveLength(1);
++    expect(report.effect).toBe("one real tool effect\n");
++    expect(report.effects).toBe(1);
++    for (const type of [
++      "user_message",
++      "approval_request_message",
++      "tool_return_message",
++      "assistant_message",
++    ]) {
++      expect(
++        report.history.filter((message) => message.message_type === type),
++      ).toHaveLength(1);
++    }
++    expect(JSON.stringify(report.listener?.payloads)).toContain(
++      "task-completed-on-reserve",
++    );
++  },
++);
+diff --git a/src/websocket/listener/native-inference-fallback-integration.test.ts b/src/websocket/listener/native-inference-fallback-integration.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f32926f508cecf7e9e10608d198d20322cf0aecd
+--- /dev/null
++++ b/src/websocket/listener/native-inference-fallback-integration.test.ts
+@@ -0,0 +1,221 @@
++import { afterEach, expect, test } from "bun:test";
++import { mkdir, mkdtemp, rm } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import type {
++  AssistantMessage,
++  AssistantMessageEvent,
++  Model,
++} from "@earendil-works/pi-ai";
++import { __testSetBackend } from "@/backend";
++import type { NativeInferenceModelAttempt } from "@/backend/dev/native-inference-fallback";
++import type { PiStreamFunction } from "@/backend/dev/pi-stream-adapter";
++import { LocalBackend } from "@/backend/local/local-backend";
++import { emptyLocalUsage } from "@/backend/local/local-message";
++import { settingsManager } from "@/settings-manager";
++import { getOrCreateScopedRuntime } from "./conversation-runtime";
++import { createRuntime } from "./lifecycle";
++import {
++  __listenerModAdapterTestUtils,
++  createListenerModAdapter,
++  disposeListenerModAdapter,
++} from "./mod-adapter";
++import { setActiveRuntime } from "./runtime";
++import type { ListenerTransport } from "./transport";
++import { handleIncomingMessage } from "./turn";
++import { __listenerWarmupTestUtils } from "./warmup";
++
++const roots: string[] = [];
++let listenerForCleanup: ReturnType<typeof createRuntime> | undefined;
++
++afterEach(async () => {
++  if (listenerForCleanup) {
++    disposeListenerModAdapter(listenerForCleanup);
++    listenerForCleanup = undefined;
++  }
++  await settingsManager.reset();
++  await Promise.all(
++    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
++  );
++});
++
++function providerMessage(
++  model: Model<string>,
++  content: AssistantMessage["content"],
++  stopReason: AssistantMessage["stopReason"],
++): AssistantMessage {
++  return {
++    role: "assistant",
++    content,
++    api: model.api,
++    provider: model.provider,
++    model: model.id,
++    usage: emptyLocalUsage(),
++    stopReason,
++    timestamp: Date.now(),
++  };
++}
++
++function providerResult(
++  events: AssistantMessageEvent[],
++  finalMessage: AssistantMessage,
++): ReturnType<PiStreamFunction> {
++  async function* iterator() {
++    for (const event of events) yield event;
++  }
++  return Object.assign(iterator(), { result: async () => finalMessage });
++}
++
++test("listener owns one turn while native fallback switches only the provider dispatch", async () => {
++  const root = await mkdtemp(join(tmpdir(), "listener-native-fallback-"));
++  roots.push(root);
++  const storageDir = join(root, "backend");
++  const modDir = join(root, "mods");
++  const cacheDir = join(root, "cache");
++  await Promise.all([
++    mkdir(storageDir, { recursive: true }),
++    mkdir(modDir, { recursive: true }),
++    mkdir(cacheDir, { recursive: true }),
++  ]);
++  process.env.HOME = root;
++  process.env.LETTA_HOME = join(root, "letta-home");
++  process.env.LETTA_LOCAL_BACKEND_DIR = storageDir;
++  await settingsManager.reset();
++  await settingsManager.initialize();
++
++  const dispatches: string[] = [];
++  const attempts: NativeInferenceModelAttempt[] = [];
++  const stream: PiStreamFunction = (model) => {
++    dispatches.push(`${model.provider}/${model.id}`);
++    if (model.id === "gpt-5.5") {
++      const failure = {
++        ...providerMessage(
++          model,
++          [{ type: "text", text: "listener-must-not-see-primary" }],
++          "error",
++        ),
++        errorMessage:
++          '429: {"code":"1310","message":"Weekly/Monthly Limit Exhausted"}',
++      };
++      return providerResult(
++        [
++          {
++            type: "text_delta",
++            contentIndex: 0,
++            delta: "listener-must-not-see-primary",
++            partial: failure,
++          },
++          { type: "error", reason: "error", error: failure },
++        ],
++        failure,
++      );
++    }
++    const success = providerMessage(
++      model,
++      [{ type: "text", text: "listener-secondary-only" }],
++      "stop",
++    );
++    return providerResult(
++      [
++        {
++          type: "text_delta",
++          contentIndex: 0,
++          delta: "listener-secondary-only",
++          partial: success,
++        },
++        { type: "done", reason: "stop", message: success },
++      ],
++      success,
++    );
++  };
++  const backend = new LocalBackend({
++    storageDir,
++    stateStorageDir: storageDir,
++    stream,
++    memfsEnabled: false,
++    nativeInferenceFallback: {
++      resolveDestination(context, failure, attemptedModels) {
++        if (
++          context.input.agent.name !== "Clara listener synthetic" ||
++          failure.category !== "quota_exhausted" ||
++          attemptedModels.includes("openai/gpt-5.4")
++        ) {
++          return null;
++        }
++        return {
++          model: "openai/gpt-5.4",
++          modelSettings: { reasoning_effort: "xhigh" },
++        };
++      },
++      onModelAttempt(attempt) {
++        attempts.push(attempt);
++      },
++    },
++  });
++  __testSetBackend(backend);
++  const agent = await backend.createAgent({
++    name: "Clara listener synthetic",
++    model: "openai/gpt-5.5",
++    model_settings: { reasoning_effort: "low" },
++  } as never);
++  const conversation = await backend.createConversation({
++    agent_id: agent.id,
++  } as never);
++
++  __listenerWarmupTestUtils.setWarmupDepsForTests({
++    ensureMemfsSyncedForAgent: async () => false,
++    ensureSecretsHydratedForAgent: async () => {},
++  });
++  __listenerModAdapterTestUtils.setEnsureMemfsSyncedForAgentForTests(
++    async () => false,
++  );
++  const listener = createRuntime();
++  listenerForCleanup = listener;
++  listener.modAdapter = createListenerModAdapter({
++    globalModsDirectory: modDir,
++    cacheDirectory: cacheDir,
++  });
++  setActiveRuntime(listener);
++  const runtime = getOrCreateScopedRuntime(listener, agent.id, conversation.id);
++  const payloads: string[] = [];
++  const transport: ListenerTransport = {
++    kind: "local",
++    bufferedAmount: 0,
++    isOpen: () => true,
++    send: (payload: string) => {
++      payloads.push(payload);
++    },
++  };
++
++  await handleIncomingMessage(
++    {
++      type: "message",
++      agentId: agent.id,
++      conversationId: conversation.id,
++      processOwnedTurn: true,
++      excludeInteractiveTools: true,
++      messages: [
++        {
++          role: "user",
++          content: "one listener inbound",
++          client_message_id: "listener-input-otid",
++        },
++      ],
++    },
++    transport,
++    runtime,
++    undefined,
++    undefined,
++    "batch-native-fallback",
++  );
++
++  expect(dispatches).toEqual(["openai/gpt-5.5", "openai/gpt-5.4"]);
++  expect(payloads.join("\n")).toContain("listener-secondary-only");
++  expect(payloads.join("\n")).not.toContain("listener-must-not-see-primary");
++  expect(runtime.turnLifecycle.snapshot().kind).toBe("idle");
++  expect(
++    attempts
++      .filter((attempt) => attempt.outcome !== "started")
++      .map((attempt) => `${attempt.model}:${attempt.outcome}`),
++  ).toEqual(["openai/gpt-5.5:quota", "openai/gpt-5.4:success"]);
++});

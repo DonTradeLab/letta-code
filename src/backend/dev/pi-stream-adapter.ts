@@ -29,6 +29,16 @@ import {
   normalizeLocalProviderError,
 } from "./local-provider-errors";
 import {
+  appendNativeInferenceBufferedEvent,
+  classifyNativeInferenceFailure,
+  fallbackInputForDestination,
+  NativeInferenceAttemptInvalidatedError,
+  type NativeInferenceFallbackPolicy,
+  type NativeInferenceModelAttempt,
+  type NativeInferenceProviderErrorEnvelope,
+  parseNativeInferenceProviderErrorEnvelope,
+} from "./native-inference-fallback";
+import {
   elideImagePayloadsForProviderRetry,
   isOversizedPayloadTransportFailure,
 } from "./pi-image-elision";
@@ -39,6 +49,15 @@ import {
 } from "./pi-model-factory";
 import { LocalPiModelsRuntime } from "./pi-models-runtime";
 import { resolvePiRequestHeaders } from "./pi-request-headers";
+import {
+  anthropicEffortForSettings,
+  boolValue,
+  maxTokensForSettings,
+  serviceTierForSettings,
+  sleepWithAbort,
+  withAnthropicOutputEffort,
+  withOpenAIResponsesReplayIdSanitizer,
+} from "./pi-stream-options";
 import { isPiModelOutputEvent } from "./pi-stream-output";
 import type {
   LlmEndErrorInfo,
@@ -109,46 +128,31 @@ export interface PiStreamAdapterOptions {
   ) => Promise<LocalCompactionResult | null>;
   onLlmStart?: (info: LlmStartInfo) => void | Promise<void>;
   onLlmEnd?: (info: LlmEndInfo) => void | Promise<void>;
+  /** Prototype-only. Production leaves this unset. */
+  nativeInferenceFallback?: NativeInferenceFallbackPolicy;
 }
 
 class PiProviderError extends Error {
   readonly assistant: AssistantMessage;
   readonly statusCode?: number;
+  readonly providerFailure?: NativeInferenceProviderErrorEnvelope;
 
   constructor(assistant: AssistantMessage) {
     super(assistant.errorMessage ?? "Unknown local provider error");
     this.name = "PiProviderError";
     this.assistant = assistant;
-    const status = assistant.diagnostics
+    this.providerFailure = parseNativeInferenceProviderErrorEnvelope(
+      assistant.provider,
+      assistant.errorMessage,
+    );
+    const diagnosticStatus = assistant.diagnostics
       ?.map(
         (diagnostic) =>
           diagnostic.details?.statusCode ?? diagnostic.details?.status,
       )
       .find((value): value is number => typeof value === "number");
-    this.statusCode = status;
+    this.statusCode = diagnosticStatus ?? this.providerFailure?.status;
   }
-}
-
-async function sleepWithAbort(
-  delayMs: number,
-  abortSignal: AbortSignal | undefined,
-): Promise<void> {
-  if (delayMs <= 0) return;
-  if (abortSignal?.aborted) {
-    throw new DOMException("Aborted", "AbortError");
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      abortSignal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, delayMs);
-    const onAbort = () => {
-      clearTimeout(timeout);
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    abortSignal?.addEventListener("abort", onAbort, { once: true });
-  });
 }
 
 function isClientTool(value: unknown): value is ClientTool {
@@ -280,75 +284,6 @@ function toPiMessages(messages: readonly LocalMessage[]): Message[] {
   return normalized;
 }
 
-function stripOpenAIResponsesReplayItemIds(
-  payload: unknown,
-): unknown | undefined {
-  if (!isRecord(payload) || !Array.isArray(payload.input)) return undefined;
-
-  let changed = false;
-  const input = payload.input.map((item) => {
-    if (!isRecord(item) || !("id" in item)) return item;
-    const type = item.type;
-    if (
-      type !== "reasoning" &&
-      type !== "message" &&
-      type !== "function_call"
-    ) {
-      return item;
-    }
-
-    changed = true;
-    const next = { ...item };
-    delete next.id;
-    return next;
-  });
-
-  return changed ? { ...payload, input } : undefined;
-}
-
-function withOpenAIResponsesReplayIdSanitizer(
-  existing: SimpleStreamOptions["onPayload"] | undefined,
-): SimpleStreamOptions["onPayload"] {
-  return async (payload, model) => {
-    let next = payload;
-    let upstreamChanged = false;
-    const upstream = await existing?.(payload, model);
-    if (upstream !== undefined) {
-      next = upstream;
-      upstreamChanged = true;
-    }
-
-    const sanitized = stripOpenAIResponsesReplayItemIds(next);
-    if (sanitized !== undefined) return sanitized;
-    return upstreamChanged ? next : undefined;
-  };
-}
-
-function withAnthropicOutputEffort(
-  existing: SimpleStreamOptions["onPayload"] | undefined,
-  effort: string | undefined,
-): SimpleStreamOptions["onPayload"] | undefined {
-  if (!effort) return existing;
-  return async (payload, model) => {
-    let next = payload;
-    let upstreamChanged = false;
-    const upstream = await existing?.(payload, model);
-    if (upstream !== undefined) {
-      next = upstream;
-      upstreamChanged = true;
-    }
-    if (!isRecord(next)) return upstreamChanged ? next : undefined;
-    const outputConfig = isRecord(next.output_config) ? next.output_config : {};
-    return {
-      ...next,
-      output_config: {
-        ...outputConfig,
-        effort,
-      },
-    };
-  };
-}
-
 /**
  * Reject a turn whose irreducible prompt cannot fit the serving context window.
  *
@@ -389,44 +324,6 @@ function nextPowerOfTwoAtLeast(value: number): number {
   let size = 8192;
   while (size < value && size < 1_048_576) size *= 2;
   return size;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function boolValue(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function anthropicEffortForSettings(
-  modelSettings: Record<string, unknown>,
-): string | undefined {
-  const nestedReasoning = isRecord(modelSettings.reasoning)
-    ? modelSettings.reasoning
-    : undefined;
-  return (
-    stringValue(modelSettings.effort) ??
-    stringValue(nestedReasoning?.reasoning_effort) ??
-    stringValue(modelSettings.reasoning_effort)
-  );
-}
-
-function maxTokensForSettings(
-  modelSettings: Record<string, unknown>,
-): number | undefined {
-  const maxTokens = modelSettings.max_tokens;
-  return typeof maxTokens === "number" && Number.isFinite(maxTokens)
-    ? maxTokens
-    : undefined;
-}
-
-function serviceTierForSettings(
-  model: Model<string>,
-  modelSettings: Record<string, unknown>,
-): "priority" | undefined {
-  if (model.api !== "openai-codex-responses") return undefined;
-  return modelSettings.service_tier === "priority" ? "priority" : undefined;
 }
 
 function toLocalAssistantMessage(
@@ -492,6 +389,7 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
   private readonly onContextPressure?: PiStreamAdapterOptions["onContextPressure"];
   private readonly onLlmStart?: PiStreamAdapterOptions["onLlmStart"];
   private readonly onLlmEnd?: PiStreamAdapterOptions["onLlmEnd"];
+  private readonly nativeInferenceFallback?: NativeInferenceFallbackPolicy;
 
   constructor(options: PiStreamAdapterOptions = {}) {
     this.modelsRuntime =
@@ -513,6 +411,47 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
     this.onContextPressure = options.onContextPressure;
     this.onLlmStart = options.onLlmStart;
     this.onLlmEnd = options.onLlmEnd;
+    this.nativeInferenceFallback = options.nativeInferenceFallback;
+  }
+
+  private async emitNativeAttempt(
+    attempt: NativeInferenceModelAttempt,
+  ): Promise<void> {
+    await this.nativeInferenceFallback?.onModelAttempt?.(attempt);
+  }
+
+  private async assertNativeAttemptCurrent(
+    input: ProviderTurnInput,
+    attempt: number,
+  ): Promise<void> {
+    if (
+      this.abortSignal?.aborted ||
+      (this.nativeInferenceFallback?.isAttemptCurrent &&
+        !(await this.nativeInferenceFallback.isAttemptCurrent({
+          input,
+          attempt,
+          model: input.agent.model,
+        })))
+    ) {
+      await this.emitNativeAttempt({
+        attempt,
+        model: input.agent.model,
+        outcome: "invalidated",
+      });
+      throw new NativeInferenceAttemptInvalidatedError();
+    }
+  }
+
+  private async *emitNativeGuardedEvents(
+    events: Iterable<ProviderStreamEvent> | AsyncIterable<ProviderStreamEvent>,
+    input: ProviderTurnInput,
+    attempt: number,
+  ): AsyncIterable<ProviderStreamEvent> {
+    for await (const event of events) {
+      await this.assertNativeAttemptCurrent(input, attempt);
+      yield event;
+      await this.assertNativeAttemptCurrent(input, attempt);
+    }
   }
 
   private async *emitCompactionChunks(
@@ -573,6 +512,7 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
 
   private async *streamOnce(
     input: ProviderTurnInput,
+    fallbackAttempt = 1,
   ): AsyncIterable<ProviderStreamEvent> {
     const tools = toPiTools(input.clientTools);
     const localModel = await resolveAvailableLocalModelForTurn({
@@ -693,11 +633,19 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
         messageCount: context.messages.length,
         contextWindow: resolved.model.contextWindow,
       });
+      await this.assertNativeAttemptCurrent(input, fallbackAttempt);
       const result = this.runStream(
         resolved.model as Model<string>,
         context,
         options,
       );
+      await this.emitNativeAttempt({
+        attempt: fallbackAttempt,
+        model: input.agent.model,
+        provider: resolved.model.provider,
+        ...(reasoning ? { effort: reasoning } : {}),
+        outcome: "started",
+      });
 
       let streamError: unknown;
       let finalMessage: AssistantMessage | undefined;
@@ -748,6 +696,13 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
       ) {
         throw new PiProviderError(finalMessage);
       }
+      await this.emitNativeAttempt({
+        attempt: fallbackAttempt,
+        model: input.agent.model,
+        provider: resolved.model.provider,
+        ...(reasoning ? { effort: reasoning } : {}),
+        outcome: "success",
+      });
       if (this.onContextPressure) {
         const usageContextTokens = contextTokensFromUsage(finalMessage.usage);
         const contextTokens =
@@ -786,6 +741,16 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
           error: endError.error,
         });
       }
+      const failure = classifyNativeInferenceFailure(error);
+      await this.emitNativeAttempt({
+        attempt: fallbackAttempt,
+        model: input.agent.model,
+        provider: failure.provider ?? resolved.model.provider,
+        ...(reasoning ? { effort: reasoning } : {}),
+        outcome: failure.category === "quota_exhausted" ? "quota" : "error",
+        ...(failure.status !== undefined ? { status: failure.status } : {}),
+        ...(failure.code ? { code: failure.code } : {}),
+      });
       throw error;
     } finally {
       restoreEnv();
@@ -797,8 +762,11 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
     let preflightCompactionChecked = false;
     let contextOverflowCompactions = 0;
     let transientRetries = 0;
+    let fallbackAttempt = 1;
+    const attemptedModels = [input.agent.model];
 
     while (true) {
+      await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
       if (!preflightCompactionChecked) {
         // Check once per turn. If compaction still cannot make the request fit,
         // the provider overflow path remains the bounded recovery mechanism.
@@ -806,23 +774,76 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
         // recreate the behavior deliberately removed in #3355.
         preflightCompactionChecked = true;
         const compaction = await this.compactBeforeProviderCall(activeInput);
+        await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
         if (compaction) {
           activeInput = { ...activeInput, uiMessages: compaction.uiMessages };
-          yield* this.emitCompactionChunks(compaction, "context_window_limit");
+          yield* this.emitNativeGuardedEvents(
+            this.emitCompactionChunks(compaction, "context_window_limit"),
+            activeInput,
+            fallbackAttempt,
+          );
           continue;
         }
       }
 
       let emittedModelOutput = false;
       let emittedLocalMessage = false;
+      const bufferedEvents: ProviderStreamEvent[] = [];
+      let bufferedBytes = 0;
       try {
-        for await (const event of this.streamOnce(activeInput)) {
+        for await (const event of this.streamOnce(
+          activeInput,
+          fallbackAttempt,
+        )) {
           if (isPiModelOutputEvent(event)) emittedModelOutput = true;
           if (event.type === "local-message") emittedLocalMessage = true;
-          yield event;
+          if (this.nativeInferenceFallback) {
+            bufferedBytes = appendNativeInferenceBufferedEvent(
+              bufferedEvents,
+              event,
+              bufferedBytes,
+              this.nativeInferenceFallback,
+            );
+          } else {
+            yield event;
+          }
         }
+        await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
+        yield* this.emitNativeGuardedEvents(
+          bufferedEvents,
+          activeInput,
+          fallbackAttempt,
+        );
         return;
       } catch (error) {
+        const failure = classifyNativeInferenceFailure(error);
+        if (
+          this.nativeInferenceFallback &&
+          failure.category === "quota_exhausted"
+        ) {
+          await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
+          const destination =
+            await this.nativeInferenceFallback.resolveDestination(
+              {
+                input: activeInput,
+                attempt: fallbackAttempt,
+                model: activeInput.agent.model,
+              },
+              failure,
+              attemptedModels,
+            );
+          await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
+          if (destination && !attemptedModels.includes(destination.model)) {
+            attemptedModels.push(destination.model);
+            activeInput = fallbackInputForDestination(activeInput, destination);
+            fallbackAttempt += 1;
+            preflightCompactionChecked = false;
+            contextOverflowCompactions = 0;
+            transientRetries = 0;
+            continue;
+          }
+        }
+
         if (isOverflowError(error)) {
           if (
             !this.onContextWindowOverflow ||
@@ -834,18 +855,22 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
             activeInput,
             error,
           );
+          await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
           if (!compaction) throw error;
 
           contextOverflowCompactions += 1;
           activeInput = { ...activeInput, uiMessages: compaction.uiMessages };
-          yield* this.emitCompactionChunks(
-            compaction,
-            "context_window_overflow",
+          yield* this.emitNativeGuardedEvents(
+            this.emitCompactionChunks(compaction, "context_window_overflow"),
+            activeInput,
+            fallbackAttempt,
           );
           continue;
         }
 
-        const retryableTransportError = isRetryableLocalProviderError(error);
+        const retryableTransportError =
+          failure.category !== "quota_exhausted" &&
+          isRetryableLocalProviderError(error);
 
         // Oversized-payload classification: a retryable transport failure on a
         // payload we can measure as oversized will keep failing — compact
@@ -887,12 +912,14 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
           } catch {
             compaction = null;
           }
+          await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
           if (compaction) {
             contextOverflowCompactions += 1;
             activeInput = { ...activeInput, uiMessages: compaction.uiMessages };
-            yield* this.emitCompactionChunks(
-              compaction,
-              "context_window_overflow",
+            yield* this.emitNativeGuardedEvents(
+              this.emitCompactionChunks(compaction, "context_window_overflow"),
+              activeInput,
+              fallbackAttempt,
             );
             continue;
           }
@@ -933,6 +960,7 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
           !retryableTransportError
         ) {
           if (
+            !this.nativeInferenceFallback &&
             emittedModelOutput &&
             !emittedLocalMessage &&
             error instanceof PiProviderError &&
@@ -947,17 +975,24 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
 
         transientRetries += 1;
         const delayMs = localProviderRetryDelayMs(error, transientRetries);
-        yield providerLettaChunk({
-          message_type: "event_message",
-          event_type: "retry",
-          event_data: {
-            attempt: transientRetries,
-            max_attempts: LOCAL_PROVIDER_MAX_RETRIES,
-            delay_ms: delayMs,
-            message: localProviderRetryMessage(error),
-          },
-        } as never);
+        yield* this.emitNativeGuardedEvents(
+          [
+            providerLettaChunk({
+              message_type: "event_message",
+              event_type: "retry",
+              event_data: {
+                attempt: transientRetries,
+                max_attempts: LOCAL_PROVIDER_MAX_RETRIES,
+                delay_ms: delayMs,
+                message: localProviderRetryMessage(error),
+              },
+            } as never),
+          ],
+          activeInput,
+          fallbackAttempt,
+        );
         await sleepWithAbort(delayMs, this.abortSignal);
+        await this.assertNativeAttemptCurrent(activeInput, fallbackAttempt);
       }
     }
   }

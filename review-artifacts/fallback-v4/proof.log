@@ -1,0 +1,69 @@
+COMMAND ['bun', '--no-env-file', 'build', 'review-artifacts/fallback-v4/run-proof.ts', '--target=node', '--format=esm', '--external=ws', '--external=node-pty', '--external=@vscode/ripgrep', '--external=grammy', '--external=@pierre/diffs', '--external=@pierre/diffs/*', '--external=@shikijs/langs', '--external=@shikijs/langs/*', '--outfile=review-artifacts/fallback-v4/run-proof.mjs']
+EXIT 0
+Bundled 2210 modules in 1180ms
+
+  run-proof.mjs  16.16 MB  (entry point)
+
+
+COMMAND ['bun', '--no-env-file', '--no-install', 'run', 'review-artifacts/fallback-v4/run-proof.ts', 'review-artifacts/fallback-v4/after-listener-bun-final.json', '--listener', '--verify']
+EXIT 0
+{
+  "runtime": "bun 1.3.11",
+  "requests": [
+    "primary",
+    "primary",
+    "reserve"
+  ],
+  "effects": 1,
+  "effect": "one real tool effect\n",
+  "chunks": [
+    "user_message",
+    "approval_request_message",
+    "tool_return_message",
+    "assistant_message"
+  ],
+  "taskId": "v4-task-input",
+  "verified": true
+}
+
+COMMAND ['node', 'review-artifacts/fallback-v4/run-proof.mjs', 'review-artifacts/fallback-v4/after-listener-node-final.json', '--listener', '--verify']
+EXIT 0
+{
+  "runtime": "node v26.0.0",
+  "requests": [
+    "primary",
+    "primary",
+    "reserve"
+  ],
+  "effects": 1,
+  "effect": "one real tool effect\n",
+  "chunks": [
+    "user_message",
+    "approval_request_message",
+    "tool_return_message",
+    "assistant_message"
+  ],
+  "taskId": "v4-task-input",
+  "verified": true
+}
+
+COMMAND ['node', 'review-artifacts/fallback-v4/run-proof.mjs', 'review-artifacts/fallback-v4/after-listener-node-partial.json', '--listener', '--partial', '--verify']
+EXIT 0
+{
+  "runtime": "node v26.0.0",
+  "requests": [
+    "primary",
+    "primary",
+    "reserve"
+  ],
+  "effects": 1,
+  "effect": "one real tool effect\n",
+  "chunks": [
+    "user_message",
+    "approval_request_message",
+    "tool_return_message",
+    "assistant_message"
+  ],
+  "taskId": "v4-task-input",
+  "verified": true
+}

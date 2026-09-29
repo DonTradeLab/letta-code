@@ -1,0 +1,8 @@
+{
+  "command": "DISABLE_AUTOUPDATER=1 letta model get --agent agent-local-b74c1d2e-5ca1-435a-bdbc-b50025f9a236",
+  "exit_code": 0,
+  "model": "openai-codex/gpt-6-astra",
+  "reasoning_effort": "max",
+  "context_window_limit": 272000,
+  "model_changed_by_this_task": false
+}

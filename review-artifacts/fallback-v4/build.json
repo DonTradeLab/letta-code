@@ -1,0 +1,16 @@
+{
+  "mode": "build",
+  "commands": [
+    {
+      "label": "build",
+      "command": ["bun", "--no-env-file", "run", "build"],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-wbc4pkbx",
+      "exit_code": 0,
+      "duration_s": 21.25,
+      "summary": "$ node scripts/postinstall-patches.js && bun run build.js\n[patch] vendor/ink/build/components/App.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/components/App.js\n[patch] vendor/ink/build/hooks/use-input.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/hooks/use-input.js\n[patch] vendor/ink/build/devtools.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/devtools.js\n[patch] vendor/ink/build/log-update.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/log-update.js\n[patch] vendor/ink/build/wrap-text.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/wrap-text.js\n[patch] resettable static output -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink/build/ink.js\n[patch] vendor/ink-text-input/build/index.js -> /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4/node_modules/ink-text-input/build/index.js\n[patch] Ink runtime patched\n[patch] Configured letta to prefer Bun runtime\n\ud83d\udce6 Building Letta Code v0.33.6...\n\ud83d\udcc2 Copied bundled skills to skills/\n\ud83d\udcdd Generating type declarations...\n   Output: dist/types/protocol.d.ts\n\u2705 Build complete!\n   Output: letta.js\n   Output: dist/app-server-client.js and .cjs\n   Size: 22345KB\n"
+    }
+  ],
+  "passed_files": 1,
+  "failed_files": 0
+}

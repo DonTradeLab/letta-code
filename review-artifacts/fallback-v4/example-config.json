@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "enabled": false,
+  "owner": "native-inference",
+  "externalController": "disabled-for-scopes",
+  "timeoutMs": 120000,
+  "scopes": [
+    {
+      "agentId": "agent-local-replace-with-approved-id",
+      "lineage": "self",
+      "chain": [
+        {
+          "model": "zai/glm-5.3",
+          "provider": "zai",
+          "credentialProvider": "zai",
+          "contextWindow": 128000,
+          "maxOutputTokens": 4096,
+          "effort": "high",
+          "tools": true,
+          "input": ["text"]
+        },
+        {
+          "model": "openai-codex/gpt-5.4",
+          "provider": "openai-codex",
+          "credentialProvider": "openai-codex",
+          "contextWindow": 128000,
+          "maxOutputTokens": 4096,
+          "effort": "high",
+          "tools": true,
+          "input": ["text"]
+        }
+      ]
+    }
+  ]
+}
