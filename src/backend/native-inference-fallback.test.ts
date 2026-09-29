@@ -299,6 +299,26 @@ describe("native inference fallback classifier", () => {
 });
 
 describe("native inference fallback buffered dispatch", () => {
+  test("revalidates after the awaited LLM-start hook before dispatch", async () => {
+    let current = true;
+    let dispatches = 0;
+    const adapter = new PiStreamAdapter({
+      stream: (...args) => {
+        dispatches += 1;
+        return effectfulSuccessStream()(...args);
+      },
+      onLlmStart: async () => {
+        current = false;
+      },
+      nativeInferenceFallback: syntheticPolicy({ current: () => current }),
+    });
+    const result = await collect(adapter);
+    expect(result.error).toMatchObject({
+      name: "NativeInferenceAttemptInvalidatedError",
+    });
+    expect(dispatches).toBe(0);
+    expect(result.events).toHaveLength(0);
+  });
   test.each(["abort", "owner", "manual"] as const)(
     "revalidates %s between flushed events before a tool can escape",
     async (invalidation) => {

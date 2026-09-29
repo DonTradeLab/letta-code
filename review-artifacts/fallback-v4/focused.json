@@ -1,0 +1,31 @@
+{
+  "mode": "focused",
+  "commands": [
+    {
+      "label": "focused",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "--no-install",
+        "test",
+        "src/backend/local/native-fallback-config.test.ts",
+        "src/backend/local/native-fallback-policy.test.ts",
+        "src/backend/local/effective-local-agent.test.ts",
+        "src/backend/native-inference-fallback.test.ts",
+        "src/backend/native-inference-fallback-integration.test.ts",
+        "src/websocket/listener/native-fallback-v4.test.ts",
+        "src/websocket/listener/native-inference-fallback-integration.test.ts",
+        "src/backend/pi-stream-adapter-retry.test.ts",
+        "src/backend/provider-turn-executor.test.ts",
+        "src/backend/local-provider-errors.test.ts"
+      ],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-p_5umwsr",
+      "exit_code": 0,
+      "duration_s": 4.75,
+      "summary": "[451.89ms]\n\nsrc/websocket/listener/native-inference-fallback-integration.test.ts:\n(pass) listener owns one turn while native fallback switches only the provider dispatch [363.70ms]\n\nsrc/backend/local/native-fallback-config.test.ts:\n(pass) OFF is explicit and validated; ON requires exact scope and single-owner attestation [0.74ms]\n(pass) no wildcard lineage, cycles, arbitrary credentials or effort downgrade [0.37ms]\n\nsrc/backend/local/effective-local-agent.test.ts:\n(pass) dispatch and fallback fence use the same outer context and nested effort precedence [0.17ms]\n\nsrc/backend/local/native-fallback-policy.test.ts:\n(pass) production factory finishes one task on reserve after a real Write, without re-appending input [85.02ms]\n(pass) factory fails closed without duplicate tool effects: {\"enabled\":false} [65.66ms]\n(pass) factory fails closed without duplicate tool effects: {\"status\":401} [51.87ms]\n(pass) factory fails closed without duplicate tool effects: {\"status\":403} [51.92ms]\n(pass) factory fails closed without duplicate tool effects: {\"unlisted\":true} [53.05ms]\n(pass) factory fails closed without duplicate tool effects: {\"missingReserve\":true} [67.28ms]\n(pass) factory fails closed without duplicate tool effects: {\"toolsIncompatible\":true} [69.24ms]\n(pass) factory fails closed without duplicate tool effects: {\"incompatible\":true} [65.64ms]\n(pass) factory fails closed without duplicate tool effects: {\"lowPrimaryEffort\":true} [71.27ms]\n(pass) factory fails closed without duplicate tool effects: {\"manualChange\":true} [60.93ms]\n(pass) factory fails closed without duplicate tool effects: {\"cancel\":true} [115.26ms]\n(pass) factory fails closed without duplicate tool effects: {\"timeout\":true} [136.65ms]\n\n 70 pass\n 0 fail\n 275 expect() calls\nRan 70 tests across 10 files. [4.71s]\n"
+    }
+  ],
+  "passed_files": 1,
+  "failed_files": 0
+}

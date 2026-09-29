@@ -1,0 +1,81 @@
+{
+  "mode": "proof",
+  "commands": [
+    {
+      "label": "bundle-proof",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "build",
+        "review-artifacts/fallback-v4/run-proof.ts",
+        "--target=node",
+        "--format=esm",
+        "--external=ws",
+        "--external=node-pty",
+        "--external=@vscode/ripgrep",
+        "--external=grammy",
+        "--external=@pierre/diffs",
+        "--external=@pierre/diffs/*",
+        "--external=@shikijs/langs",
+        "--external=@shikijs/langs/*",
+        "--outfile=review-artifacts/fallback-v4/run-proof.mjs"
+      ],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-xhscnkyq",
+      "exit_code": 0,
+      "duration_s": 1.24,
+      "summary": "Bundled 2210 modules in 1180ms\n\n  run-proof.mjs  16.16 MB  (entry point)\n\n"
+    },
+    {
+      "label": "bun-listener",
+      "command": [
+        "bun",
+        "--no-env-file",
+        "--no-install",
+        "run",
+        "review-artifacts/fallback-v4/run-proof.ts",
+        "review-artifacts/fallback-v4/after-listener-bun-final.json",
+        "--listener",
+        "--verify"
+      ],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7",
+      "exit_code": 0,
+      "duration_s": 2.97,
+      "summary": "{\n  \"runtime\": \"bun 1.3.11\",\n  \"requests\": [\n    \"primary\",\n    \"primary\",\n    \"reserve\"\n  ],\n  \"effects\": 1,\n  \"effect\": \"one real tool effect\\n\",\n  \"chunks\": [\n    \"user_message\",\n    \"approval_request_message\",\n    \"tool_return_message\",\n    \"assistant_message\"\n  ],\n  \"taskId\": \"v4-task-input\",\n  \"verified\": true\n}\n"
+    },
+    {
+      "label": "node-listener",
+      "command": [
+        "node",
+        "review-artifacts/fallback-v4/run-proof.mjs",
+        "review-artifacts/fallback-v4/after-listener-node-final.json",
+        "--listener",
+        "--verify"
+      ],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-wa03dmye",
+      "exit_code": 0,
+      "duration_s": 2.42,
+      "summary": "{\n  \"runtime\": \"node v26.0.0\",\n  \"requests\": [\n    \"primary\",\n    \"primary\",\n    \"reserve\"\n  ],\n  \"effects\": 1,\n  \"effect\": \"one real tool effect\\n\",\n  \"chunks\": [\n    \"user_message\",\n    \"approval_request_message\",\n    \"tool_return_message\",\n    \"assistant_message\"\n  ],\n  \"taskId\": \"v4-task-input\",\n  \"verified\": true\n}\n"
+    },
+    {
+      "label": "node-partial",
+      "command": [
+        "node",
+        "review-artifacts/fallback-v4/run-proof.mjs",
+        "review-artifacts/fallback-v4/after-listener-node-partial.json",
+        "--listener",
+        "--partial",
+        "--verify"
+      ],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-cxij31c0",
+      "exit_code": 0,
+      "duration_s": 2.46,
+      "summary": "{\n  \"runtime\": \"node v26.0.0\",\n  \"requests\": [\n    \"primary\",\n    \"primary\",\n    \"reserve\"\n  ],\n  \"effects\": 1,\n  \"effect\": \"one real tool effect\\n\",\n  \"chunks\": [\n    \"user_message\",\n    \"approval_request_message\",\n    \"tool_return_message\",\n    \"assistant_message\"\n  ],\n  \"taskId\": \"v4-task-input\",\n  \"verified\": true\n}\n"
+    }
+  ],
+  "passed_files": 4,
+  "failed_files": 0
+}

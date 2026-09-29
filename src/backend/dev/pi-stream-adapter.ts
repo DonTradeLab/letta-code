@@ -633,6 +633,7 @@ export class PiStreamAdapter implements ProviderStreamAdapter {
         messageCount: context.messages.length,
         contextWindow: resolved.model.contextWindow,
       });
+      await this.assertNativeAttemptCurrent(input, fallbackAttempt);
       const result = this.runStream(
         resolved.model as Model<string>,
         context,

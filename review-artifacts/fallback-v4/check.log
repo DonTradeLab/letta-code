@@ -1,0 +1,27 @@
+COMMAND ['bun', '--no-env-file', 'run', 'check']
+EXIT 1
+$ bun run scripts/check.js
+[1/12] circular dependencies .......... PASS  38.1s  (2,169 files)
+[2/12] layer boundaries ............... PASS  1.3s
+[3/12] exported function style ........ PASS  1.4s
+[4/12] filename casing ................ PASS  0.7s
+[5/12] source file size ............... PASS  1.6s
+[6/12] module ownership ............... PASS  11.9s
+[7/12] test mock isolation ............ PASS  0.6s
+[8/12] test coverage .................. PASS  0.4s
+[9/12] skill frontmatter .............. PASS  0.5s
+[10/12] bundled skill scripts .......... PASS  0.5s
+[11/12] biome .......................... PASS  14.2s  (2,107 files)
+[12/12] typescript ..................... FAIL  130.7s
+       src/backend/dev/fake-headless-backend.ts(28,1): error TS6133: 'isRecord' is declared but its value is never read.
+       src/websocket/listener/native-fallback-v4.test.ts(11,34): error TS2339: Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; } | { ...; }'.
+         Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; }'.
+       src/websocket/listener/native-fallback-v4.test.ts(25,19): error TS2339: Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; } | { ...; }'.
+         Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; }'.
+       src/websocket/listener/native-fallback-v4.test.ts(38,34): error TS2339: Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; } | { ...; }'.
+         Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; }'.
+       $ tsc --noEmit
+
+
+✗ 1 of 12 checks failed in 201.9s
+error: script "check" exited with code 1

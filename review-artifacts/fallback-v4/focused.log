@@ -1,0 +1,98 @@
+COMMAND ['bun', '--no-env-file', '--no-install', 'test', 'src/backend/local/native-fallback-config.test.ts', 'src/backend/local/native-fallback-policy.test.ts', 'src/backend/local/effective-local-agent.test.ts', 'src/backend/native-inference-fallback.test.ts', 'src/backend/native-inference-fallback-integration.test.ts', 'src/websocket/listener/native-fallback-v4.test.ts', 'src/websocket/listener/native-inference-fallback-integration.test.ts', 'src/backend/pi-stream-adapter-retry.test.ts', 'src/backend/provider-turn-executor.test.ts', 'src/backend/local-provider-errors.test.ts']
+EXIT 0
+bun test v1.3.11 (af24e281)
+
+src/backend/provider-turn-executor.test.ts:
+(pass) ProviderTurnExecutor > reserves Pi's output headroom before the context window is full [0.16ms]
+(pass) ProviderTurnExecutor > caps the reserve for small local context windows [0.03ms]
+(pass) ProviderTurnExecutor > maps pi text, thinking, tool call, usage, and done events [3.08ms]
+(pass) ProviderTurnExecutor > groups adjacent live blocks and preserves interleaved boundaries [0.42ms]
+(pass) ProviderTurnExecutor > preserves new deltas after provider-supplied start content [24.16ms]
+(pass) ProviderTurnExecutor > matches history identity after start-only redacted reasoning [8.51ms]
+(pass) ProviderTurnExecutor > uses the first nonempty reasoning block for live and history identity [8.94ms]
+(pass) ProviderTurnExecutor > persists start-only reasoning identity when the provider fails [9.98ms]
+(pass) ProviderTurnExecutor > emits final local assistant messages as state-only chunks before stop_reason [0.35ms]
+(pass) ProviderTurnExecutor > includes provider reasoning tokens in usage statistics [0.18ms]
+(pass) ProviderTurnExecutor > maps pi length completions to max_tokens_exceeded [0.14ms]
+(pass) ProviderTurnExecutor > emits estimated context_tokens when provider usage is empty [0.23ms]
+(pass) ProviderTurnExecutor > uses latest total_tokens for context_tokens when provider reports usage [0.13ms]
+(pass) ProviderTurnExecutor > normalizes provider errors into local error chunks [0.42ms]
+
+src/backend/native-inference-fallback-integration.test.ts:
+(pass) native inference fallback through LocalBackend and ProviderTurnExecutor > uses both provider-published models through real pi-ai HTTP drivers [100.40ms]
+(pass) native inference fallback through LocalBackend and ProviderTurnExecutor > persists one input and delivers one secondary answer to the same synthetic channel sink [22.94ms]
+(pass) native inference fallback through LocalBackend and ProviderTurnExecutor > keeps a completed file effect and tool result while only retrying the following inference [32.01ms]
+(pass) native inference fallback through LocalBackend and ProviderTurnExecutor > does not dispatch while approval is pending and preserves deny without executing the effect [26.44ms]
+
+src/backend/local-provider-errors.test.ts:
+(pass) LocalProviderErrors > classifies Codex Responses server_error events as retryable LLM errors [4.46ms]
+(pass) LocalProviderErrors > classifies Codex WebSocket 1006 closes as retryable LLM errors [0.23ms]
+(pass) LocalProviderErrors > keeps ChatGPT usage limits non-retryable [0.19ms]
+
+src/backend/native-inference-fallback.test.ts:
+(pass) native inference fallback classifier > uses structured status and code already preserved at the provider boundary [0.19ms]
+(pass) native inference fallback classifier > strictly parses only a complete provider HTTP envelope [0.27ms]
+(pass) native inference fallback classifier > does not infer quota from negative case 0 [0.06ms]
+(pass) native inference fallback classifier > does not infer quota from negative case 1 [0.06ms]
+(pass) native inference fallback classifier > does not infer quota from negative case 2 [0.01ms]
+(pass) native inference fallback classifier > does not infer quota from negative case 3 [0.02ms]
+(pass) native inference fallback classifier > does not infer quota from negative case 4 [0.03ms]
+(pass) native inference fallback classifier > does not infer quota from negative case 5 [0.04ms]
+(pass) native inference fallback classifier > does not infer quota from negative case 6 [0.02ms]
+(pass) native inference fallback classifier > does not infer quota from negative case 7
+(pass) native inference fallback buffered dispatch > revalidates after the awaited LLM-start hook before dispatch [2.06ms]
+(pass) native inference fallback buffered dispatch > revalidates abort between flushed events before a tool can escape [2.54ms]
+(pass) native inference fallback buffered dispatch > revalidates owner between flushed events before a tool can escape [0.74ms]
+(pass) native inference fallback buffered dispatch > revalidates manual between flushed events before a tool can escape [0.86ms]
+(pass) native inference fallback buffered dispatch > does not fall back for a non-qualifying provider envelope: 429: {"code": [3.03ms]
+(pass) native inference fallback buffered dispatch > does not fall back for a non-qualifying provider envelope: 429: {"code":"14290","message":"retry-after-ms: 0 "} [4.54ms]
+(pass) native inference fallback buffered dispatch > does not fall back for a non-qualifying provider envelope: 401: {"code":"1310","message":"auth"} [0.74ms]
+(pass) native inference fallback buffered dispatch > does not fall back for a non-qualifying provider envelope: 403: {"code":"1310","message":"permission"} [0.55ms]
+(pass) native inference fallback buffered dispatch > does not fall back for a non-qualifying provider envelope: 429 status code (no body) [0.93ms]
+(pass) native inference fallback buffered dispatch > does not fall back for a non-qualifying provider envelope: quoted 429 code 1310 [0.95ms]
+(pass) native inference fallback buffered dispatch > discards partial primary output and completes the same input on an approved secondary [2.79ms]
+(pass) native inference fallback buffered dispatch > fails closed when the destination is incompatible or unapproved [1.33ms]
+(pass) native inference fallback buffered dispatch > rejects an unavailable destination before provider dispatch [3.81ms]
+(pass) native inference fallback buffered dispatch > fails closed before dispatch when manual selection or ownership changes [1.39ms]
+(pass) native inference fallback buffered dispatch > does not dispatch a fallback after the owning turn is aborted [1.65ms]
+(pass) native inference fallback buffered dispatch > fails visibly without retry after the bounded output buffer is exceeded [1.28ms]
+(pass) native inference fallback buffered dispatch > terminates a finite chain when the secondary also exhausts quota [2.71ms]
+(pass) native inference fallback buffered dispatch > applies identity and proven-delegation eligibility without conversation enumeration [6.47ms]
+
+src/backend/pi-stream-adapter-retry.test.ts:
+(pass) PiStreamAdapter retry output boundary > retries retryable transport errors before model output [3.65ms]
+(pass) PiStreamAdapter retry output boundary > does not retry after nonempty start-only model output [1.92ms]
+(pass) PiStreamAdapter retry output boundary > emits a partial snapshot before a non-retryable error part [1.81ms]
+
+src/websocket/listener/native-fallback-v4.test.ts:
+(pass) one listener turn and real Bash append; partial SSE before quota=%s [2000.96ms]
+(pass) one listener turn and real Bash append; partial SSE before quota=%s [451.89ms]
+
+src/websocket/listener/native-inference-fallback-integration.test.ts:
+(pass) listener owns one turn while native fallback switches only the provider dispatch [363.70ms]
+
+src/backend/local/native-fallback-config.test.ts:
+(pass) OFF is explicit and validated; ON requires exact scope and single-owner attestation [0.74ms]
+(pass) no wildcard lineage, cycles, arbitrary credentials or effort downgrade [0.37ms]
+
+src/backend/local/effective-local-agent.test.ts:
+(pass) dispatch and fallback fence use the same outer context and nested effort precedence [0.17ms]
+
+src/backend/local/native-fallback-policy.test.ts:
+(pass) production factory finishes one task on reserve after a real Write, without re-appending input [85.02ms]
+(pass) factory fails closed without duplicate tool effects: {"enabled":false} [65.66ms]
+(pass) factory fails closed without duplicate tool effects: {"status":401} [51.87ms]
+(pass) factory fails closed without duplicate tool effects: {"status":403} [51.92ms]
+(pass) factory fails closed without duplicate tool effects: {"unlisted":true} [53.05ms]
+(pass) factory fails closed without duplicate tool effects: {"missingReserve":true} [67.28ms]
+(pass) factory fails closed without duplicate tool effects: {"toolsIncompatible":true} [69.24ms]
+(pass) factory fails closed without duplicate tool effects: {"incompatible":true} [65.64ms]
+(pass) factory fails closed without duplicate tool effects: {"lowPrimaryEffort":true} [71.27ms]
+(pass) factory fails closed without duplicate tool effects: {"manualChange":true} [60.93ms]
+(pass) factory fails closed without duplicate tool effects: {"cancel":true} [115.26ms]
+(pass) factory fails closed without duplicate tool effects: {"timeout":true} [136.65ms]
+
+ 70 pass
+ 0 fail
+ 275 expect() calls
+Ran 70 tests across 10 files. [4.71s]

@@ -47,8 +47,8 @@ export interface NativeInferenceModelAttempt {
 }
 
 /**
- * Prototype-only policy seam. Production does not install a policy.
- *
+ * Policy seam. Local production startup derives a scoped policy from the
+ * validated native-inference-fallback.json configuration (OFF by default).
  * The caller owns identity/lineage eligibility, approved finite destinations,
  * credential/capability checks, and the live owner/manual-selection revision.
  * Returning null fails closed. The adapter never mutates the stored model.

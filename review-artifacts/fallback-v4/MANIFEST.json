@@ -1,0 +1,78 @@
+{
+  "candidate": "V4 review-only, not installed",
+  "packaged_v3": "3262fbaba1d831a678ab225e03a3a009b664dd41",
+  "base": "1ff4d95eff41633e4fcf37a29a0587216666fe88",
+  "branch": "review/native-inference-fallback-v4",
+  "version": "0.33.6",
+  "sources": {
+    "src/backend/dev/fake-headless-backend.ts": "50ea75c4bdf0ce6b8eb9ffbaf2f2e5f4f0c3737de60207c2de0339b83baeee1c",
+    "src/backend/dev/native-inference-fallback.ts": "40173447689d4da04387bea777798608dbe1064587778a3087f88192bcf1bd66",
+    "src/backend/dev/pi-stream-adapter.ts": "6298e4353b293840bb8495f40e85fe0e4fdb3e3ec84fbc5e51474eef491f87ee",
+    "src/backend/dev/pi-stream-options.ts": "7befce6f90bdf739693b9d7d30044ef889513036263eab444e624939174e2de2",
+    "src/backend/dev/provider-turn-executor.ts": "61eed1bcf4008bdc5c5c6c58b1975aa95d3207a56363b9620f5f76996fa0927d",
+    "src/backend/local/effective-local-agent.test.ts": "b54b81e3243497e88251cb120a98ca549d857fa7ad3cd4a313a144776f67ae33",
+    "src/backend/local/effective-local-agent.ts": "e158c34c7f24de129c90b3e09aff7db4a5504554574e4afe8c76d36a9d568d84",
+    "src/backend/local/local-backend.ts": "2e080c6ec90d7074a5e3e4a9b73eea9e8e35ce89e38a2ab087a277cc9f7f1295",
+    "src/backend/local/local-executor-factory.ts": "43c3f1327833aadbc504e2ec6fef6c476b46b0a2809ca5eb574b23d381461d86",
+    "src/backend/local/native-fallback-config.test.ts": "6f89724504fd23bb5eff61d6f535712f81f177bf3fe9fe0a1b65781ae72b928b",
+    "src/backend/local/native-fallback-config.ts": "8c88a8581a6f722a9e111e77fad39d9f0985696a3d7da228d411910710b8e6d8",
+    "src/backend/local/native-fallback-policy.test.ts": "96f257181f6679ba066167c7499f205b1b944440a2a1e3b20c5160717e1b27ef",
+    "src/backend/local/native-fallback-policy.ts": "5976c7c401be868073fd8e1e5e0cb7eb76c2814ff7b27de4a4209056979a9e46",
+    "src/backend/native-inference-fallback-integration.test.ts": "8cc42afb2500569a0612a89f219ad14e28deb70086d6cb437ac4b6f9cbcf114f",
+    "src/backend/native-inference-fallback.test.ts": "cfc933ab0eace1d06a53178f62785673dc1a7651f904063557ab75e6a6856a58",
+    "src/test-utils/fallback-v4-listener.ts": "def33e42afca85fe3c8f27815afb79bf3c6c5184aa487cab609f7b8be5c723d5",
+    "src/test-utils/fallback-v4-scenario.ts": "3b057872f109f8ee5933beba9d5493aeeb9f3617cab1c40ccedb6835c174e551",
+    "src/websocket/listener/native-fallback-v4.test.ts": "07fb156e1fbd6df55c2e327acc5b7c970e4f651f4ac34b031fb2670808ba460e",
+    "src/websocket/listener/native-inference-fallback-integration.test.ts": "4576bdfdd504f8f18d3a753a69c49c8237c82bf1ebd2825348f223f3848c4cec"
+  },
+  "source_identity_sha256": "66b9be4be82d79aa9100e16ba49f933d03e6439830bc507aa93b3147ffe1c438",
+  "package_sha256": "7837197e29d6d79b801185638849c6fcc91eedae763a4a3d5eafd51ac66224f9",
+  "lock_sha256": "13bd4c7bb51e833d4e12eb54a3276eef30a3584f8813802f316a490f7903de6f",
+  "bundle_sha256": "36b7267b85673868ecc92636a17d360e5a999fb99eceb60ebfbf1d39af8f5fad",
+  "proof_bundle_sha256": "d080f57ae9628386be5fe46060796e728a45909dd04822b2e2a4aa29c6c03269",
+  "patches": {
+    "native-inference-fallback-v4.patch": {
+      "base": "1ff4d95eff41633e4fcf37a29a0587216666fe88",
+      "scope": "all changed source/tests under src; review artifacts excluded to avoid self-reference",
+      "reverse_apply_check_exit": 0,
+      "forward_apply_check_isolated_index_exit": 0,
+      "sha256": "52e60a1de008b328254484604bccb019306de8dbca66e1e14a89e4b879355ecf"
+    },
+    "v3-to-v4.patch": {
+      "base": "3262fbaba1d831a678ab225e03a3a009b664dd41",
+      "scope": "all changed source/tests under src; review artifacts excluded to avoid self-reference",
+      "reverse_apply_check_exit": 0,
+      "forward_apply_check_isolated_index_exit": 0,
+      "sha256": "6dbac78cd5aa530dd8f7972c6a5486d1a9351a086979000330675ea0086f78c5"
+    }
+  },
+  "tests": {
+    "focused": {
+      "passed": 70,
+      "failed": 0,
+      "assertions": 275
+    },
+    "suite-final": {
+      "passed": 1649,
+      "failed": 0,
+      "assertions": 5206
+    }
+  },
+  "full_suite_files_passed": 177,
+  "check": "12/12 exit 0 (check-release.log)",
+  "typecheck_exit": 0,
+  "build_exit": 0,
+  "model": {
+    "handle": "openai-codex/gpt-6-astra",
+    "effort": "max",
+    "context": 272000
+  },
+  "limits": [
+    "self lineage only; no implicit child inheritance",
+    "operator-gated vigia handoff; no automatic external writer coordination",
+    "no crash/external-effect exactly-once guarantee",
+    "loopback synthetic providers; no real Slack/TUI/services",
+    "Node harness from production modules, not installed CLI smoke test"
+  ],
+  "preliminary_failures": "suite.log forced local mode broke memory-path expectation; parallel suite-default.log had reconnect timing failure; baseline and candidate isolated reconnect checks and final serial suite all pass. Earlier check/type errors preserved."
+}

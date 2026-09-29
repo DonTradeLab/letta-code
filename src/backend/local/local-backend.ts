@@ -45,6 +45,7 @@ import {
   summarizeLocalMessagesAll,
   summarizeLocalMessagesSlidingWindow,
 } from "./compaction";
+import { effectiveLocalAgent } from "./effective-local-agent";
 import { initialMemoryFilesFromCreateBody } from "./initial-memory";
 import {
   createLocalExecutor,
@@ -228,6 +229,18 @@ export class LocalBackend extends HeadlessBackend {
           localBackendRef.current?.emitLlmStart(info) ?? Promise.resolve(),
         (info) =>
           localBackendRef.current?.emitLlmEnd(info) ?? Promise.resolve(),
+        (input) => {
+          const store = localBackendRef.current?.store;
+          return store
+            ? effectiveLocalAgent(
+                store.retrieveExecutionAgentRecord(
+                  input.conversationId,
+                  input.agentId,
+                ),
+                store.retrieveConversation(input.conversationId, input.agentId),
+              )
+            : undefined;
+        },
       ),
       storeOptions,
       {

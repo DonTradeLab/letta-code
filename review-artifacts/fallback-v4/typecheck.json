@@ -1,0 +1,16 @@
+{
+  "mode": "typecheck",
+  "commands": [
+    {
+      "label": "typecheck",
+      "command": ["bun", "--no-env-file", "run", "typecheck"],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-ssp6vlj8",
+      "exit_code": 0,
+      "duration_s": 51.16,
+      "summary": "$ tsc --noEmit\n"
+    }
+  ],
+  "passed_files": 1,
+  "failed_files": 0
+}

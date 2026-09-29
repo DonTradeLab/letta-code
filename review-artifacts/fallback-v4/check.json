@@ -1,0 +1,16 @@
+{
+  "mode": "check",
+  "commands": [
+    {
+      "label": "check",
+      "command": ["bun", "--no-env-file", "run", "check"],
+      "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4",
+      "sandbox": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-cgrzibaf",
+      "exit_code": 1,
+      "duration_s": 201.99,
+      "summary": "sts: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; } | { ...; }'.\n         Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; }'.\n       src/websocket/listener/native-fallback-v4.test.ts(25,19): error TS2339: Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; } | { ...; }'.\n         Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; }'.\n       src/websocket/listener/native-fallback-v4.test.ts(38,34): error TS2339: Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; } | { ...; }'.\n         Property 'listener' does not exist on type '{ runtime: string; options: FallbackScenarioOptions; root: string; taskId: string; agentId: string; conversationId: string; requests: { model: string; messages: unknown; effort: unknown; }[]; ... 4 more ...; history: Message[]; }'.\n       $ tsc --noEmit\n\n\n\u2717 1 of 12 checks failed in 201.9s\nerror: script \"check\" exited with code 1\n"
+    }
+  ],
+  "passed_files": 0,
+  "failed_files": 1
+}

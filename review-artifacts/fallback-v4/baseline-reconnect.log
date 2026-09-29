@@ -1,0 +1,13 @@
+COMMAND ['bun', '--no-env-file', '--no-install', 'test', 'src/websocket/listener/auth-lifecycle-approval-reconnect.test.ts']
+EXIT 0
+bun test v1.3.11 (af24e281)
+
+src/websocket/listener/auth-lifecycle-approval-reconnect.test.ts:
+(pass) listener approval reconnect timing > service restart reconnect preserves a client tool already executing [199.60ms]
+(pass) listener approval reconnect timing > disconnected requires_approval producer waits for reconnect before executing a generic client tool [166.34ms]
+(pass) listener approval reconnect timing > disconnected client-tool approval waits until listener stop interrupts execution [154.71ms]
+
+ 3 pass
+ 0 fail
+ 35 expect() calls
+Ran 3 tests across 1 file. [2.64s]

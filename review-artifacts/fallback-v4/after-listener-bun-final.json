@@ -1,0 +1,761 @@
+{
+  "runtime": "bun 1.3.11",
+  "options": {
+    "listener": true,
+    "partial": false
+  },
+  "root": "/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3",
+  "taskId": "v4-task-input",
+  "agentId": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+  "conversationId": "local-conv-1",
+  "requests": [
+    {
+      "model": "primary",
+      "messages": [
+        {
+          "role": "developer",
+          "content": "\n\n<memory_metadata>\n- AGENT_ID: agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43\n- CONVERSATION_ID: local-conv-1\n- System prompt last recompiled: 2026-09-29 08:27:37 PM UTC+0000\n- 0 previous messages between you and the user are stored in recall memory\n</memory_metadata>\n\n<available_skills>\n- `acquiring-skills`: Discover and install skills from Hermes, ClawHub, GitHub, and other registries. Load this skill whenever a user asks for a capability you don't already have — image generation, social media, email, calendar, finance, DevOps, search, browser automation, etc.\n- `adding-models`: Guide for adding new LLM models to Letta Code. Use when the user wants to add support for a new model, needs to know valid model handles, or wants to update model-specific compatibility behavior. Covers runtime catalog sources, CI test matrices, and handle validation.\n- `browser-use`: Control a real browser to navigate pages, click, type, fill forms, inspect rendered UI, take screenshots, or record video. Load only when the user asks to open or automate a browser, interact with or test rendered page UI, scrape a site that needs browser execution, or capture a browser screenshot or video. Do not load for backend logs, traces, API or stream events, source-code inspection, or plain HTTP or web research that does not require a browser.\n- `capturing-tui-visual-proof`: Captures reviewable before-and-after visual proof from the real Letta Code Ink TUI. Use when a Letta Code PR changes interactive CLI rendering or behavior and needs terminal screenshots or GIFs in its PR body.\n- `context-doctor`: Investigate agent behavior and audit memory structure, organization, and skills; make evidence-backed repairs.\n- `creating-mods`: Creates and edits trusted local Letta Code mods, including tools, slash commands, local-only model providers, lifecycle/turn events, scoped conversation helpers, panels, and capability-gated behavior. Use when asked to make a mod, add an agent-callable tool, add a slash command, add a local provider/model adapter, transform turns, react to app events, or add lightweight mod UI outside the dedicated /statusline flow.\n- `creating-skills`: Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Letta Code's capabilities with specialized knowledge, workflows, or tool integrations.\n- `customizing-commands`: Creates, edits, and enables Letta Code mod-provided slash commands. Use when the user asks to add a custom /command, slash command, command shortcut, scoped conversation-backed command, or command-driven panel behavior.\n- `customizing-statusline`: Creates, edits, and migrates Letta Code statusline mods. Use when handling the /statusline command or continuing work started by /statusline.\n- `editing-letta-code-desktop-preferences`: Edits Letta Code Desktop (LCD) preferences by safely reading and updating ~/.letta/desktop_preferences.json. Use only when the user asks to change current Desktop/LCD settings such as theme, default working directory, remote access preference, or remote environment name via the preferences JSON.\n- `finding-agents`: Find other agents on the same server. Use when the user asks about other agents, wants to migrate memory from another agent, or needs to find an agent by name or tags.\n- `initializing-memory`: Comprehensive guide for initializing or reorganizing agent memory. Load this skill when running /init, when the user asks you to set up your memory, or when you need guidance on creating effective memory files.\n- `letta-guide`: Read the official Letta documentation (docs.letta.com) through its cached, ETag-checked fetch route. Load before ANY docs.letta.com retrieval — answering how Letta works, what Letta (or you) can do, and looking up Letta API, Agent SDK, or Letta Code reference.\n- `messaging-agents`: Send a message to another Letta agent, continue a thread with one, check on it, or reply to a message another agent sent you. Use when you need to ask, inform, or coordinate with another agent, or when a message from another agent arrives.\n- `migrating-memory`: Migrate memory blocks from an existing agent to the current agent. Use when the user wants to copy or share memory from another agent, or during /init when setting up a new agent that should inherit memory from an existing one.\n- `scheduling-tasks`: Advanced scheduling through the letta cron CLI for other conversations, computers, run history, and schedule replacement. Use Wake for ordinary create/list/cancel operations in the current conversation.\n- `self-configuration`: Inspect or modify Letta Code's own memory, model, context window, system prompt, compaction, permissions, toolsets, mods, skills, channels, schedules, agent secrets, and local runtime settings. Use when the user asks how this agent or conversation is configured, asks about account usage, remaining credits, or model quota, asks you to change how you behave or how the harness runs you, or renames you.\n- `submitting-feedback`: Submits user-approved product feedback and bug reports about Letta Code to the Letta team. Load when the user reports a Letta Code bug, requests a product or developer change, or explicitly asks to send feedback. Do not load for corrections to the current agent's behavior or preferences; those are memory edits. Works with cloud-hosted and local agents. Ask before submitting unless the user already explicitly requested submission.\n- `syncing-memory-filesystem`: Diagnose and repair MemFS repository setup, remote sync, authentication failures, optional backup remotes, or merge/rebase conflicts. Do not load for routine memory reads or edits.\n- `using-mcp-tools`: Reference for the `letta mcp` CLI, which finds and invokes MCP tools available to this agent. A system reminder already lists your connected MCP servers and the basic search/schema/call commands; invoke this skill when you need more — browsing a server's tools, passing large or file-based arguments, tuning search, or troubleshooting missing servers, tools, and errors.\n- `workflow-authoring`: Reference for writing a Workflow tool script (script API and gotchas, pipeline-vs-barrier rules, quality patterns, worked examples). Load before authoring a script for a workflow the user already opted into; it does not itself authorize running one.\n</available_skills>"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 05:27 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nAM review-artifacts/fallback-v4/.gitignore\nA  review-artifacts/fallback-v4/CONFIGURATION.md\nA  review-artifacts/fallback-v4/MANIFEST.json\nA  review-artifacts/fallback-v4/SHA256SUMS\nA  review-artifacts/fallback-v4/after-bun.json\nA  review-artifacts/fallback-v4/after-listener-bun-final.json\nA  review-artifacts/fallback-v4/after-listener-bun.json\nA  review-artifacts/fallback-v4/after-listener-node-final.json\nA  review-artifacts/fallback-v4/after-listener-node-partial.json\nA  review-artifacts/fallback-v4/after-listener-node.json\nA  review-artifacts/fallback-v4/baseline-reconnect.json\nA  review-artifacts/fallback-v4/before.json\nA  review-artifacts/fallback-v4/build.json\nA  review-artifacts/fallback-v4/candidate-reconnect.json\nA  review-artifacts/fallback-v4/check-confirmed.json\nA  review-artifacts/fallback-v4/check-final.json\nA  review-artifacts/fallback-v4/check-release.json\nA  review-artifacts/fallback-v4/check.json\nA  review-artifacts/fallback-v4/example-config.json\nA  review-artifacts/fallback-v4/focused.json\n... and 41 more changes\n```\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/backend/memfs/agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 5:27:37 PM (just now)\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "write once then answer"
+            }
+          ]
+        }
+      ],
+      "effort": "high",
+      "credentialMatchedReference": true
+    },
+    {
+      "model": "primary",
+      "messages": [
+        {
+          "role": "developer",
+          "content": "\n\n<memory_metadata>\n- AGENT_ID: agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43\n- CONVERSATION_ID: local-conv-1\n- System prompt last recompiled: 2026-09-29 08:27:37 PM UTC+0000\n- 0 previous messages between you and the user are stored in recall memory\n</memory_metadata>\n\n<available_skills>\n- `acquiring-skills`: Discover and install skills from Hermes, ClawHub, GitHub, and other registries. Load this skill whenever a user asks for a capability you don't already have — image generation, social media, email, calendar, finance, DevOps, search, browser automation, etc.\n- `adding-models`: Guide for adding new LLM models to Letta Code. Use when the user wants to add support for a new model, needs to know valid model handles, or wants to update model-specific compatibility behavior. Covers runtime catalog sources, CI test matrices, and handle validation.\n- `browser-use`: Control a real browser to navigate pages, click, type, fill forms, inspect rendered UI, take screenshots, or record video. Load only when the user asks to open or automate a browser, interact with or test rendered page UI, scrape a site that needs browser execution, or capture a browser screenshot or video. Do not load for backend logs, traces, API or stream events, source-code inspection, or plain HTTP or web research that does not require a browser.\n- `capturing-tui-visual-proof`: Captures reviewable before-and-after visual proof from the real Letta Code Ink TUI. Use when a Letta Code PR changes interactive CLI rendering or behavior and needs terminal screenshots or GIFs in its PR body.\n- `context-doctor`: Investigate agent behavior and audit memory structure, organization, and skills; make evidence-backed repairs.\n- `creating-mods`: Creates and edits trusted local Letta Code mods, including tools, slash commands, local-only model providers, lifecycle/turn events, scoped conversation helpers, panels, and capability-gated behavior. Use when asked to make a mod, add an agent-callable tool, add a slash command, add a local provider/model adapter, transform turns, react to app events, or add lightweight mod UI outside the dedicated /statusline flow.\n- `creating-skills`: Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Letta Code's capabilities with specialized knowledge, workflows, or tool integrations.\n- `customizing-commands`: Creates, edits, and enables Letta Code mod-provided slash commands. Use when the user asks to add a custom /command, slash command, command shortcut, scoped conversation-backed command, or command-driven panel behavior.\n- `customizing-statusline`: Creates, edits, and migrates Letta Code statusline mods. Use when handling the /statusline command or continuing work started by /statusline.\n- `editing-letta-code-desktop-preferences`: Edits Letta Code Desktop (LCD) preferences by safely reading and updating ~/.letta/desktop_preferences.json. Use only when the user asks to change current Desktop/LCD settings such as theme, default working directory, remote access preference, or remote environment name via the preferences JSON.\n- `finding-agents`: Find other agents on the same server. Use when the user asks about other agents, wants to migrate memory from another agent, or needs to find an agent by name or tags.\n- `initializing-memory`: Comprehensive guide for initializing or reorganizing agent memory. Load this skill when running /init, when the user asks you to set up your memory, or when you need guidance on creating effective memory files.\n- `letta-guide`: Read the official Letta documentation (docs.letta.com) through its cached, ETag-checked fetch route. Load before ANY docs.letta.com retrieval — answering how Letta works, what Letta (or you) can do, and looking up Letta API, Agent SDK, or Letta Code reference.\n- `messaging-agents`: Send a message to another Letta agent, continue a thread with one, check on it, or reply to a message another agent sent you. Use when you need to ask, inform, or coordinate with another agent, or when a message from another agent arrives.\n- `migrating-memory`: Migrate memory blocks from an existing agent to the current agent. Use when the user wants to copy or share memory from another agent, or during /init when setting up a new agent that should inherit memory from an existing one.\n- `scheduling-tasks`: Advanced scheduling through the letta cron CLI for other conversations, computers, run history, and schedule replacement. Use Wake for ordinary create/list/cancel operations in the current conversation.\n- `self-configuration`: Inspect or modify Letta Code's own memory, model, context window, system prompt, compaction, permissions, toolsets, mods, skills, channels, schedules, agent secrets, and local runtime settings. Use when the user asks how this agent or conversation is configured, asks about account usage, remaining credits, or model quota, asks you to change how you behave or how the harness runs you, or renames you.\n- `submitting-feedback`: Submits user-approved product feedback and bug reports about Letta Code to the Letta team. Load when the user reports a Letta Code bug, requests a product or developer change, or explicitly asks to send feedback. Do not load for corrections to the current agent's behavior or preferences; those are memory edits. Works with cloud-hosted and local agents. Ask before submitting unless the user already explicitly requested submission.\n- `syncing-memory-filesystem`: Diagnose and repair MemFS repository setup, remote sync, authentication failures, optional backup remotes, or merge/rebase conflicts. Do not load for routine memory reads or edits.\n- `using-mcp-tools`: Reference for the `letta mcp` CLI, which finds and invokes MCP tools available to this agent. A system reminder already lists your connected MCP servers and the basic search/schema/call commands; invoke this skill when you need more — browsing a server's tools, passing large or file-based arguments, tuning search, or troubleshooting missing servers, tools, and errors.\n- `workflow-authoring`: Reference for writing a Workflow tool script (script API and gotchas, pipeline-vs-barrier rules, quality patterns, worked examples). Load before authoring a script for a workflow the user already opted into; it does not itself authorize running one.\n</available_skills>"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 05:27 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nAM review-artifacts/fallback-v4/.gitignore\nA  review-artifacts/fallback-v4/CONFIGURATION.md\nA  review-artifacts/fallback-v4/MANIFEST.json\nA  review-artifacts/fallback-v4/SHA256SUMS\nA  review-artifacts/fallback-v4/after-bun.json\nA  review-artifacts/fallback-v4/after-listener-bun-final.json\nA  review-artifacts/fallback-v4/after-listener-bun.json\nA  review-artifacts/fallback-v4/after-listener-node-final.json\nA  review-artifacts/fallback-v4/after-listener-node-partial.json\nA  review-artifacts/fallback-v4/after-listener-node.json\nA  review-artifacts/fallback-v4/baseline-reconnect.json\nA  review-artifacts/fallback-v4/before.json\nA  review-artifacts/fallback-v4/build.json\nA  review-artifacts/fallback-v4/candidate-reconnect.json\nA  review-artifacts/fallback-v4/check-confirmed.json\nA  review-artifacts/fallback-v4/check-final.json\nA  review-artifacts/fallback-v4/check-release.json\nA  review-artifacts/fallback-v4/check.json\nA  review-artifacts/fallback-v4/example-config.json\nA  review-artifacts/fallback-v4/focused.json\n... and 41 more changes\n```\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/backend/memfs/agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 5:27:37 PM (just now)\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "write once then answer"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "write-once",
+              "type": "function",
+              "function": {
+                "name": "Bash",
+                "arguments": "{\"command\":\"printf 'one real tool effect\\\\n' >> \\\"/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/effect.txt\\\"\",\"description\":\"Append one isolated test effect\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "(Command completed with no output)",
+          "tool_call_id": "write-once"
+        }
+      ],
+      "effort": "high",
+      "credentialMatchedReference": true
+    },
+    {
+      "model": "reserve",
+      "messages": [
+        {
+          "role": "developer",
+          "content": "\n\n<memory_metadata>\n- AGENT_ID: agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43\n- CONVERSATION_ID: local-conv-1\n- System prompt last recompiled: 2026-09-29 08:27:37 PM UTC+0000\n- 0 previous messages between you and the user are stored in recall memory\n</memory_metadata>\n\n<available_skills>\n- `acquiring-skills`: Discover and install skills from Hermes, ClawHub, GitHub, and other registries. Load this skill whenever a user asks for a capability you don't already have — image generation, social media, email, calendar, finance, DevOps, search, browser automation, etc.\n- `adding-models`: Guide for adding new LLM models to Letta Code. Use when the user wants to add support for a new model, needs to know valid model handles, or wants to update model-specific compatibility behavior. Covers runtime catalog sources, CI test matrices, and handle validation.\n- `browser-use`: Control a real browser to navigate pages, click, type, fill forms, inspect rendered UI, take screenshots, or record video. Load only when the user asks to open or automate a browser, interact with or test rendered page UI, scrape a site that needs browser execution, or capture a browser screenshot or video. Do not load for backend logs, traces, API or stream events, source-code inspection, or plain HTTP or web research that does not require a browser.\n- `capturing-tui-visual-proof`: Captures reviewable before-and-after visual proof from the real Letta Code Ink TUI. Use when a Letta Code PR changes interactive CLI rendering or behavior and needs terminal screenshots or GIFs in its PR body.\n- `context-doctor`: Investigate agent behavior and audit memory structure, organization, and skills; make evidence-backed repairs.\n- `creating-mods`: Creates and edits trusted local Letta Code mods, including tools, slash commands, local-only model providers, lifecycle/turn events, scoped conversation helpers, panels, and capability-gated behavior. Use when asked to make a mod, add an agent-callable tool, add a slash command, add a local provider/model adapter, transform turns, react to app events, or add lightweight mod UI outside the dedicated /statusline flow.\n- `creating-skills`: Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Letta Code's capabilities with specialized knowledge, workflows, or tool integrations.\n- `customizing-commands`: Creates, edits, and enables Letta Code mod-provided slash commands. Use when the user asks to add a custom /command, slash command, command shortcut, scoped conversation-backed command, or command-driven panel behavior.\n- `customizing-statusline`: Creates, edits, and migrates Letta Code statusline mods. Use when handling the /statusline command or continuing work started by /statusline.\n- `editing-letta-code-desktop-preferences`: Edits Letta Code Desktop (LCD) preferences by safely reading and updating ~/.letta/desktop_preferences.json. Use only when the user asks to change current Desktop/LCD settings such as theme, default working directory, remote access preference, or remote environment name via the preferences JSON.\n- `finding-agents`: Find other agents on the same server. Use when the user asks about other agents, wants to migrate memory from another agent, or needs to find an agent by name or tags.\n- `initializing-memory`: Comprehensive guide for initializing or reorganizing agent memory. Load this skill when running /init, when the user asks you to set up your memory, or when you need guidance on creating effective memory files.\n- `letta-guide`: Read the official Letta documentation (docs.letta.com) through its cached, ETag-checked fetch route. Load before ANY docs.letta.com retrieval — answering how Letta works, what Letta (or you) can do, and looking up Letta API, Agent SDK, or Letta Code reference.\n- `messaging-agents`: Send a message to another Letta agent, continue a thread with one, check on it, or reply to a message another agent sent you. Use when you need to ask, inform, or coordinate with another agent, or when a message from another agent arrives.\n- `migrating-memory`: Migrate memory blocks from an existing agent to the current agent. Use when the user wants to copy or share memory from another agent, or during /init when setting up a new agent that should inherit memory from an existing one.\n- `scheduling-tasks`: Advanced scheduling through the letta cron CLI for other conversations, computers, run history, and schedule replacement. Use Wake for ordinary create/list/cancel operations in the current conversation.\n- `self-configuration`: Inspect or modify Letta Code's own memory, model, context window, system prompt, compaction, permissions, toolsets, mods, skills, channels, schedules, agent secrets, and local runtime settings. Use when the user asks how this agent or conversation is configured, asks about account usage, remaining credits, or model quota, asks you to change how you behave or how the harness runs you, or renames you.\n- `submitting-feedback`: Submits user-approved product feedback and bug reports about Letta Code to the Letta team. Load when the user reports a Letta Code bug, requests a product or developer change, or explicitly asks to send feedback. Do not load for corrections to the current agent's behavior or preferences; those are memory edits. Works with cloud-hosted and local agents. Ask before submitting unless the user already explicitly requested submission.\n- `syncing-memory-filesystem`: Diagnose and repair MemFS repository setup, remote sync, authentication failures, optional backup remotes, or merge/rebase conflicts. Do not load for routine memory reads or edits.\n- `using-mcp-tools`: Reference for the `letta mcp` CLI, which finds and invokes MCP tools available to this agent. A system reminder already lists your connected MCP servers and the basic search/schema/call commands; invoke this skill when you need more — browsing a server's tools, passing large or file-based arguments, tuning search, or troubleshooting missing servers, tools, and errors.\n- `workflow-authoring`: Reference for writing a Workflow tool script (script API and gotchas, pipeline-vs-barrier rules, quality patterns, worked examples). Load before authoring a script for a workflow the user already opted into; it does not itself authorize running one.\n</available_skills>"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 05:27 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nAM review-artifacts/fallback-v4/.gitignore\nA  review-artifacts/fallback-v4/CONFIGURATION.md\nA  review-artifacts/fallback-v4/MANIFEST.json\nA  review-artifacts/fallback-v4/SHA256SUMS\nA  review-artifacts/fallback-v4/after-bun.json\nA  review-artifacts/fallback-v4/after-listener-bun-final.json\nA  review-artifacts/fallback-v4/after-listener-bun.json\nA  review-artifacts/fallback-v4/after-listener-node-final.json\nA  review-artifacts/fallback-v4/after-listener-node-partial.json\nA  review-artifacts/fallback-v4/after-listener-node.json\nA  review-artifacts/fallback-v4/baseline-reconnect.json\nA  review-artifacts/fallback-v4/before.json\nA  review-artifacts/fallback-v4/build.json\nA  review-artifacts/fallback-v4/candidate-reconnect.json\nA  review-artifacts/fallback-v4/check-confirmed.json\nA  review-artifacts/fallback-v4/check-final.json\nA  review-artifacts/fallback-v4/check-release.json\nA  review-artifacts/fallback-v4/check.json\nA  review-artifacts/fallback-v4/example-config.json\nA  review-artifacts/fallback-v4/focused.json\n... and 41 more changes\n```\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/backend/memfs/agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 5:27:37 PM (just now)\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+            },
+            {
+              "type": "text",
+              "text": "write once then answer"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "write-once",
+              "type": "function",
+              "function": {
+                "name": "Bash",
+                "arguments": "{\"command\":\"printf 'one real tool effect\\\\n' >> \\\"/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/effect.txt\\\"\",\"description\":\"Append one isolated test effect\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "(Command completed with no output)",
+          "tool_call_id": "write-once"
+        }
+      ],
+      "effort": "high",
+      "credentialMatchedReference": true
+    }
+  ],
+  "effects": 1,
+  "toolReturn": "listener-executed",
+  "effect": "one real tool effect\n",
+  "chunks": [
+    {
+      "id": "ui-msg-1",
+      "date": "2026-09-29T20:27:39.154Z",
+      "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+      "conversation_id": "local-conv-1",
+      "message_type": "user_message",
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 05:27 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nAM review-artifacts/fallback-v4/.gitignore\nA  review-artifacts/fallback-v4/CONFIGURATION.md\nA  review-artifacts/fallback-v4/MANIFEST.json\nA  review-artifacts/fallback-v4/SHA256SUMS\nA  review-artifacts/fallback-v4/after-bun.json\nA  review-artifacts/fallback-v4/after-listener-bun-final.json\nA  review-artifacts/fallback-v4/after-listener-bun.json\nA  review-artifacts/fallback-v4/after-listener-node-final.json\nA  review-artifacts/fallback-v4/after-listener-node-partial.json\nA  review-artifacts/fallback-v4/after-listener-node.json\nA  review-artifacts/fallback-v4/baseline-reconnect.json\nA  review-artifacts/fallback-v4/before.json\nA  review-artifacts/fallback-v4/build.json\nA  review-artifacts/fallback-v4/candidate-reconnect.json\nA  review-artifacts/fallback-v4/check-confirmed.json\nA  review-artifacts/fallback-v4/check-final.json\nA  review-artifacts/fallback-v4/check-release.json\nA  review-artifacts/fallback-v4/check.json\nA  review-artifacts/fallback-v4/example-config.json\nA  review-artifacts/fallback-v4/focused.json\n... and 41 more changes\n```\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/backend/memfs/agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 5:27:37 PM (just now)\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "write once then answer"
+        }
+      ],
+      "otid": "v4-task-input"
+    },
+    {
+      "id": "ui-msg-2:tool:write-once:request",
+      "date": "2026-09-29T20:27:39.373Z",
+      "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+      "conversation_id": "local-conv-1",
+      "message_type": "approval_request_message",
+      "tool_call": {
+        "tool_call_id": "write-once",
+        "name": "Bash",
+        "arguments": "{\"command\":\"printf 'one real tool effect\\\\n' >> \\\"/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/effect.txt\\\"\",\"description\":\"Append one isolated test effect\"}"
+      }
+    },
+    {
+      "id": "ui-msg-3",
+      "date": "2026-09-29T20:27:39.496Z",
+      "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+      "conversation_id": "local-conv-1",
+      "message_type": "tool_return_message",
+      "tool_call_id": "write-once",
+      "status": "success",
+      "tool_return": "(Command completed with no output)"
+    },
+    {
+      "id": "ui-msg-4",
+      "date": "2026-09-29T20:27:39.552Z",
+      "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+      "conversation_id": "local-conv-1",
+      "message_type": "assistant_message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "task-completed-on-reserve"
+        }
+      ]
+    }
+  ],
+  "history": [
+    {
+      "id": "ui-msg-1",
+      "date": "2026-09-29T20:27:39.154Z",
+      "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+      "conversation_id": "local-conv-1",
+      "message_type": "user_message",
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "<system-reminder>\nThis is an automated message providing context about the user's environment.\nThis conversation is now connected to a Letta Code execution environment.\n\n## Device Information\n- **Local time**: Tuesday, September 29, 2026 at 05:27 PM GMT-3\n- **Device type**: macOS\n- **Letta Code version**: 0.33.6\n- **Current working directory**: /Users/diegoveras/Code/letta-code/.letta/worktrees/review-fallback-v4\n- **Git repository**: Yes (branch: review/native-inference-fallback-v4)\n- **Git user**: (not configured)\n\n### Recent Commits\n```\n3262fbab Package native inference fallback V3 for review. (DonTrade)\n1ff4d95e chore: bump version to 0.33.6 (#4843) (github-actions[bot])\nba084c50 feat(workflow): support local backend workers (#4840) (letta-integration[bot])\n```\n\n### Git Status\n```\nAM review-artifacts/fallback-v4/.gitignore\nA  review-artifacts/fallback-v4/CONFIGURATION.md\nA  review-artifacts/fallback-v4/MANIFEST.json\nA  review-artifacts/fallback-v4/SHA256SUMS\nA  review-artifacts/fallback-v4/after-bun.json\nA  review-artifacts/fallback-v4/after-listener-bun-final.json\nA  review-artifacts/fallback-v4/after-listener-bun.json\nA  review-artifacts/fallback-v4/after-listener-node-final.json\nA  review-artifacts/fallback-v4/after-listener-node-partial.json\nA  review-artifacts/fallback-v4/after-listener-node.json\nA  review-artifacts/fallback-v4/baseline-reconnect.json\nA  review-artifacts/fallback-v4/before.json\nA  review-artifacts/fallback-v4/build.json\nA  review-artifacts/fallback-v4/candidate-reconnect.json\nA  review-artifacts/fallback-v4/check-confirmed.json\nA  review-artifacts/fallback-v4/check-final.json\nA  review-artifacts/fallback-v4/check-release.json\nA  review-artifacts/fallback-v4/check.json\nA  review-artifacts/fallback-v4/example-config.json\nA  review-artifacts/fallback-v4/focused.json\n... and 41 more changes\n```\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder> This is an automated message providing information about you.\n- **Agent ID (also stored in `AGENT_ID` env var)**: agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43\n- **Conversation ID (also stored in `CONVERSATION_ID` env var)**: local-conv-1\n- **Memory directory (also stored in `MEMORY_DIR` env var)**: `/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/backend/memfs/agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43/memory`\n- **Agent name**: fallback-v4-fixture (the user can change this with /rename)\n- **Agent description**: (no description) (the user can change this with /description)\n- **Last message**: 9/29/2026, 5:27:37 PM (just now)\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "<system-reminder>\nMCP servers with available tools: None\n</system-reminder>"
+        },
+        {
+          "type": "text",
+          "text": "write once then answer"
+        }
+      ],
+      "otid": "v4-task-input"
+    },
+    {
+      "id": "ui-msg-2:tool:write-once:request",
+      "date": "2026-09-29T20:27:39.373Z",
+      "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+      "conversation_id": "local-conv-1",
+      "message_type": "approval_request_message",
+      "tool_call": {
+        "tool_call_id": "write-once",
+        "name": "Bash",
+        "arguments": "{\"command\":\"printf 'one real tool effect\\\\n' >> \\\"/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/effect.txt\\\"\",\"description\":\"Append one isolated test effect\"}"
+      }
+    },
+    {
+      "id": "ui-msg-3",
+      "date": "2026-09-29T20:27:39.496Z",
+      "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+      "conversation_id": "local-conv-1",
+      "message_type": "tool_return_message",
+      "tool_call_id": "write-once",
+      "status": "success",
+      "tool_return": "(Command completed with no output)"
+    },
+    {
+      "id": "ui-msg-4",
+      "date": "2026-09-29T20:27:39.552Z",
+      "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+      "conversation_id": "local-conv-1",
+      "message_type": "assistant_message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "task-completed-on-reserve"
+        }
+      ]
+    }
+  ],
+  "listener": {
+    "payloads": [
+      {
+        "type": "update_loop_status",
+        "loop_status": {
+          "status": "PROCESSING_API_RESPONSE",
+          "active_run_ids": ["local-run-1"],
+          "client_message_ids_by_run_id": {
+            "local-run-1": ["v4-task-input"]
+          },
+          "executing_tool_call_ids": []
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 1,
+        "emitted_at": "2026-09-29T20:27:39.368Z",
+        "idempotency_key": "update_loop_status:1:cdec99a1-6780-4cdf-9c11-ce670accca52"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-1",
+          "date": "2026-09-29T20:27:39.365Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 1,
+            "model": "v4-primary/primary",
+            "provider": "v4-primary",
+            "effort": "high",
+            "outcome": "started"
+          },
+          "run_id": "local-run-1",
+          "seq_id": 1,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 2,
+        "emitted_at": "2026-09-29T20:27:39.368Z",
+        "idempotency_key": "stream_delta:2:b705ab6a-df65-42c9-a76c-f00bced8758d"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-2",
+          "date": "2026-09-29T20:27:39.369Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 1,
+            "model": "v4-primary/primary",
+            "provider": "v4-primary",
+            "effort": "high",
+            "outcome": "success"
+          },
+          "run_id": "local-run-1",
+          "seq_id": 2,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 3,
+        "emitted_at": "2026-09-29T20:27:39.369Z",
+        "idempotency_key": "stream_delta:3:17322c0d-e718-4bae-8a08-511d1deda934"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-3",
+          "date": "2026-09-29T20:27:39.372Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "approval_request_message",
+          "tool_call": {
+            "tool_call_id": "write-once",
+            "name": "Bash",
+            "arguments": "{\"command\":\"printf 'one real tool effect\\\\n' >> \\\"/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/effect.txt\\\"\",\"description\":\"Append one isolated test effect\"}"
+          },
+          "run_id": "local-run-1",
+          "seq_id": 3,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 4,
+        "emitted_at": "2026-09-29T20:27:39.374Z",
+        "idempotency_key": "stream_delta:4:007eb641-ebbb-4a5b-ab01-9823ea2abb5a"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-4",
+          "date": "2026-09-29T20:27:39.376Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "usage_statistics",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0,
+          "context_tokens": 20174,
+          "run_id": "local-run-1",
+          "seq_id": 4,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 5,
+        "emitted_at": "2026-09-29T20:27:39.376Z",
+        "idempotency_key": "stream_delta:5:4547bd99-cb4b-430f-bfb2-fb194c50c646"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "message_type": "stop_reason",
+          "stop_reason": "requires_approval",
+          "run_id": "local-run-1",
+          "seq_id": 5,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 6,
+        "emitted_at": "2026-09-29T20:27:39.377Z",
+        "idempotency_key": "stream_delta:6:011932d2-a575-4fe7-abef-3cb803ebc620"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "lifecycle-94f82a6e-895a-4d1d-9352-76d2478ef9e2",
+          "date": "2026-09-29T20:27:39.412Z",
+          "message_type": "approval_classification_end",
+          "run_id": "local-run-1",
+          "auto_allowed_tool_call_ids": ["write-once"],
+          "auto_denied_tool_call_ids": [],
+          "user_input_tool_call_ids": []
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 7,
+        "emitted_at": "2026-09-29T20:27:39.412Z",
+        "idempotency_key": "stream_delta:7:dd607cc6-3695-4c62-b589-08c973064f8c"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-3",
+          "date": "2026-09-29T20:27:39.413Z",
+          "message_type": "client_tool_start",
+          "run_id": "local-run-1",
+          "tool_call_id": "write-once",
+          "tool_name": "Bash",
+          "tool_args": "{\"command\":\"printf 'one real tool effect\\\\n' >> \\\"/Users/diegoveras/.letta/tmp/fallback-v4-validation-ie3n64c7/tmp/fallback-v4-4ikbt3/effect.txt\\\"\",\"description\":\"Append one isolated test effect\"}"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 8,
+        "emitted_at": "2026-09-29T20:27:39.413Z",
+        "idempotency_key": "stream_delta:8:a32b1ec5-8447-4cb7-abac-e105cc29e61f"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-3",
+          "date": "2026-09-29T20:27:39.490Z",
+          "message_type": "client_tool_end",
+          "run_id": "local-run-1",
+          "tool_call_id": "write-once",
+          "status": "success"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 9,
+        "emitted_at": "2026-09-29T20:27:39.490Z",
+        "idempotency_key": "stream_delta:9:d83f48e2-0b49-4632-82fb-26c06723700a"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "type": "message",
+          "message_type": "tool_return_message",
+          "id": "synthetic-tool-return-a1f22400-85f0-4057-a30a-a2cd7b50a18f",
+          "date": "2026-09-29T20:27:39.490Z",
+          "run_id": "local-run-1",
+          "status": "success",
+          "tool_call_id": "write-once",
+          "tool_return": "(Command completed with no output)",
+          "tool_returns": [
+            {
+              "tool_call_id": "write-once",
+              "status": "success",
+              "tool_return": "(Command completed with no output)"
+            }
+          ]
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 10,
+        "emitted_at": "2026-09-29T20:27:39.490Z",
+        "idempotency_key": "stream_delta:10:46aa678e-f595-420b-9f62-7a025192cb52"
+      },
+      {
+        "type": "update_loop_status",
+        "loop_status": {
+          "status": "PROCESSING_API_RESPONSE",
+          "active_run_ids": ["local-run-2"],
+          "client_message_ids_by_run_id": {
+            "local-run-1": ["v4-task-input"],
+            "local-run-2": ["v4-task-input"]
+          },
+          "executing_tool_call_ids": []
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 11,
+        "emitted_at": "2026-09-29T20:27:39.548Z",
+        "idempotency_key": "update_loop_status:11:abe140c3-9d62-49fd-8476-6ff7bce996f3"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-5",
+          "date": "2026-09-29T20:27:39.547Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 1,
+            "model": "v4-primary/primary",
+            "provider": "v4-primary",
+            "effort": "high",
+            "outcome": "started"
+          },
+          "run_id": "local-run-2",
+          "seq_id": 1,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 12,
+        "emitted_at": "2026-09-29T20:27:39.548Z",
+        "idempotency_key": "stream_delta:12:958f1a37-ea5a-4a26-a7f3-13bd917870df"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-6",
+          "date": "2026-09-29T20:27:39.548Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 1,
+            "model": "v4-primary/primary",
+            "provider": "v4-primary",
+            "effort": "high",
+            "outcome": "quota",
+            "status": 429,
+            "code": "1310"
+          },
+          "run_id": "local-run-2",
+          "seq_id": 2,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 13,
+        "emitted_at": "2026-09-29T20:27:39.548Z",
+        "idempotency_key": "stream_delta:13:a645e100-a9ca-4e63-a64f-1cb26f1599b1"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-7",
+          "date": "2026-09-29T20:27:39.548Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 2,
+            "model": "v4-reserve/reserve",
+            "provider": "v4-reserve",
+            "effort": "high",
+            "outcome": "started"
+          },
+          "run_id": "local-run-2",
+          "seq_id": 3,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 14,
+        "emitted_at": "2026-09-29T20:27:39.548Z",
+        "idempotency_key": "stream_delta:14:6f83922c-42b4-4e02-b919-4a83fa1c5e84"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-8",
+          "date": "2026-09-29T20:27:39.549Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "event_message",
+          "event_type": "native_inference_fallback",
+          "event_data": {
+            "agentId": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+            "conversationId": "local-conv-1",
+            "taskId": "v4-task-input",
+            "lineage": "self",
+            "owner": "native-inference",
+            "event": "attempt",
+            "attempt": 2,
+            "model": "v4-reserve/reserve",
+            "provider": "v4-reserve",
+            "effort": "high",
+            "outcome": "success"
+          },
+          "run_id": "local-run-2",
+          "seq_id": 4,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 15,
+        "emitted_at": "2026-09-29T20:27:39.549Z",
+        "idempotency_key": "stream_delta:15:4f75ab31-21a6-426d-86bf-1cd8ba4d2ca6"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "ui-msg-4",
+          "date": "2026-09-29T20:27:39.552Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "assistant_message",
+          "content": [
+            {
+              "type": "text",
+              "text": "task-completed-on-reserve"
+            }
+          ],
+          "run_id": "local-run-2",
+          "seq_id": 5,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 16,
+        "emitted_at": "2026-09-29T20:27:39.554Z",
+        "idempotency_key": "stream_delta:16:3694fecd-ba12-4daa-b3ec-04de2855bdce"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "id": "letta-msg-10",
+          "date": "2026-09-29T20:27:39.559Z",
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1",
+          "message_type": "usage_statistics",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 0,
+          "context_tokens": 20233,
+          "run_id": "local-run-2",
+          "seq_id": 6,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 17,
+        "emitted_at": "2026-09-29T20:27:39.560Z",
+        "idempotency_key": "stream_delta:17:e9092be3-c304-496e-b91f-5c83d3c141b4"
+      },
+      {
+        "type": "stream_delta",
+        "delta": {
+          "message_type": "stop_reason",
+          "stop_reason": "end_turn",
+          "run_id": "local-run-2",
+          "seq_id": 7,
+          "type": "message"
+        },
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 18,
+        "emitted_at": "2026-09-29T20:27:39.561Z",
+        "idempotency_key": "stream_delta:18:388218ac-562c-41ce-8533-0edc7c37ff10"
+      },
+      {
+        "type": "turn_finished",
+        "turn_id": "v4-native-task",
+        "stop_reason": "end_turn",
+        "run_id": "local-run-2",
+        "runtime": {
+          "agent_id": "agent-local-14d598f8-b7ce-4d97-97ab-8d03fb790e43",
+          "conversation_id": "local-conv-1"
+        },
+        "event_seq": 19,
+        "emitted_at": "2026-09-29T20:27:39.597Z",
+        "idempotency_key": "turn_finished:19:53c3cbc7-1668-444c-811c-35c4c3ee8ef1"
+      }
+    ],
+    "lifecycle": "idle"
+  }
+}
