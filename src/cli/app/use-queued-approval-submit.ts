@@ -17,6 +17,7 @@ import type {
   ProcessConversation,
   QueueApprovalResults,
   QueuedApprovalMetadata,
+  TuiTurnAdmission,
 } from "./types";
 
 type QueuedApprovalSubmitContext = {
@@ -105,9 +106,9 @@ export function useQueuedApprovalSubmit(ctx: QueuedApprovalSubmitContext) {
     setNeedsEagerApprovalCheck,
   ]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: queued approval refs are stable objects; .current is read dynamically when consumed.
-  const consumeQueuedApprovalInputForCurrentConversation = useCallback(
-    (otid: string = createClientOtid()): ApprovalCreate | null => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: queued approval refs are stable objects; .current is revalidated synchronously at admission.
+  const peekQueuedApprovalInputForCurrentConversation = useCallback(
+    (otid: string = createClientOtid()) => {
       const queuedResults = queuedApprovalResultsRef.current;
       if (!queuedResults || queuedResults.length === 0) {
         return null;
@@ -119,21 +120,30 @@ export function useQueuedApprovalSubmit(ctx: QueuedApprovalSubmitContext) {
         queuedMetadata.conversationId === conversationIdRef.current &&
         queuedMetadata.generation === conversationGenerationRef.current;
 
-      queueApprovalResults(null);
-      interruptQueuedRef.current = false;
-
       if (!isQueuedValid) {
         debugWarn(
           "queue",
-          "Dropping stale queued approval results for mismatched conversation or generation",
+          "Retaining stale queued approval results; they will not cross conversation/generation scope",
         );
         return null;
       }
 
-      return {
+      const input: ApprovalCreate = {
         type: "approval",
         approvals: queuedResults,
         otid,
+      };
+      return {
+        input,
+        isCurrent: () =>
+          queuedApprovalResultsRef.current === queuedResults &&
+          queuedApprovalMetadataRef.current === queuedMetadata &&
+          conversationIdRef.current === queuedMetadata.conversationId &&
+          conversationGenerationRef.current === queuedMetadata.generation,
+        commit: () => {
+          queueApprovalResults(null);
+          interruptQueuedRef.current = false;
+        },
       };
     },
     [queueApprovalResults, interruptQueuedRef],
@@ -143,20 +153,36 @@ export function useQueuedApprovalSubmit(ctx: QueuedApprovalSubmitContext) {
     async (
       input: Array<MessageCreate | ApprovalCreate>,
       options?: Parameters<typeof processConversation>[1],
-    ): Promise<void> => {
-      const queuedApprovalInput =
-        consumeQueuedApprovalInputForCurrentConversation();
-      const nextInput = queuedApprovalInput
-        ? [queuedApprovalInput, ...input]
+    ): Promise<TuiTurnAdmission> => {
+      const queuedApprovalPlan =
+        peekQueuedApprovalInputForCurrentConversation();
+      const nextInput = queuedApprovalPlan
+        ? [queuedApprovalPlan.input, ...input]
         : input;
-      await processConversation(nextInput, options);
+      const outerCommit = options?.admissionCommit;
+      return processConversation(nextInput, {
+        ...options,
+        admissionCommit:
+          queuedApprovalPlan || outerCommit
+            ? () => {
+                if (queuedApprovalPlan && !queuedApprovalPlan.isCurrent()) {
+                  return false;
+                }
+                if (outerCommit && !outerCommit()) {
+                  return false;
+                }
+                queuedApprovalPlan?.commit();
+                return true;
+              }
+            : undefined,
+      });
     },
-    [consumeQueuedApprovalInputForCurrentConversation, processConversation],
+    [peekQueuedApprovalInputForCurrentConversation, processConversation],
   );
 
   return {
     checkPendingApprovalsForSlashCommand,
-    consumeQueuedApprovalInputForCurrentConversation,
+    peekQueuedApprovalInputForCurrentConversation,
     processConversationWithQueuedApprovals,
   };
 }

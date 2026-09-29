@@ -9,9 +9,7 @@ function readAppSource(): string {
 describe("queue ordering wiring", () => {
   test("dequeue effect keeps all sensitive safety gates", () => {
     const source = readAppSource();
-    const start = source.indexOf(
-      "// Process queued messages when streaming ends.",
-    );
+    const start = source.indexOf("void dequeueEpoch;");
     const end = source.indexOf(
       "// Helper to send all approval results when done",
     );
@@ -29,10 +27,13 @@ describe("queue ordering wiring", () => {
     expect(segment).toContain("!userCancelledRef.current");
     expect(segment).toContain("!abortControllerRef.current");
     expect(segment).toContain("queuedOverlayAction=");
-    // Queue is now drained via QueueRuntime.consumeItems; setQueueDisplay is
-    // updated automatically via the onDequeued callback — no direct setState here.
-    expect(segment).toContain("tuiQueueRef.current?.consumeItems(queueLen)");
-    expect(segment).toContain("onSubmitRef.current(concatenatedMessage)");
+    // Admission is peek→submit→exact commit. The effect cannot consume before
+    // the conversation loop accepts ownership.
+    expect(segment).toContain("processingConversationRef.current === 0");
+    expect(segment).toContain("planTuiDequeue(tuiQueueRef.current");
+    expect(segment).toContain("queueItems: plannedItems");
+    expect(segment).toContain(".current(concatenatedMessage, {");
+    expect(segment).not.toContain("consumeItems(queueLen)");
     expect(segment).toContain("!dequeueInFlightRef.current");
     expect(segment).toContain("queuedOverlayAction,");
   });
@@ -69,7 +70,9 @@ describe("queue ordering wiring", () => {
     const segment = source.slice(start, end);
     // Empty input is rejected unless it resumes an Esc-parked queue.
     expect(segment).toContain("if (!msg && !hasOverrideContent) {");
-    expect(segment).toContain("if (paused === 0) return { submitted: false };");
+    expect(segment).toContain(
+      "if (paused === 0 && ready === 0) return retainedSubmit();",
+    );
     expect(segment).toContain(
       "if (profileConfirmPending && !msg && !hasOverrideContent)",
     );
@@ -88,7 +91,7 @@ describe("queue ordering wiring", () => {
       "const routedUserText = aliasBareExitCommand(userTextForInput)",
     );
     const slashIndex = segment.indexOf(
-      "const isSlashCommand = routedUserText.startsWith",
+      'const isCommand = routedUserText.startsWith("/")',
     );
 
     expect(aliasIndex).toBeGreaterThan(-1);

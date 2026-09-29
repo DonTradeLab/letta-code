@@ -50,6 +50,8 @@ export type AppProps = {
   updateNotification?: string | null; // Latest version when a significant auto-update was applied
   systemInfoReminderEnabled?: boolean;
   modsDisabled?: boolean;
+  /** Explicit local mod directory, useful for isolated integration tests. */
+  agentModsDirectoryOverride?: string | null;
 };
 
 export type ActiveOverlay =
@@ -150,13 +152,78 @@ export type QueueApprovalResults = (
 export type ProcessConversationOptions = {
   allowReentry?: boolean;
   submissionGeneration?: number;
+  submissionConversationId?: string;
   transcriptStartLineIndex?: number | null;
+  allowResponseStateReuse?: boolean;
+  /**
+   * Synchronous admission commit, invoked exactly once when the attempt has
+   * passed every admission guard and is about to become the turn owner.
+   * Must contain no awaits: verify-then-consume has to be atomic with
+   * respect to the queue. Return false when the planned batch no longer
+   * matches the ready prefix — the attempt is refused as `queue_changed`
+   * and nothing is consumed.
+   */
+  admissionCommit?: () => boolean;
+  /**
+   * Lazy preparation: awaited while this attempt already holds its turn
+   * reservation, so state-consuming preparation (reminder splices, cache
+   * reads) only runs for attempts that passed the admission guards. The
+   * returned input replaces the eager `input` argument; the returned
+   * admissionCommit (if any) is chained after any commit passed here.
+   */
+  prepare?: () => Promise<{
+    input: Array<MessageCreate | ApprovalCreate>;
+    admissionCommit?: (() => boolean) | undefined;
+    transcriptStartLineIndex?: number | null;
+    refusal?: TuiAdmissionRefusalReason;
+  }>;
 };
+
+/**
+ * Why a processConversation attempt did NOT become a turn. A refusal never
+ * decrements another owner's reservation, never touches streaming, and never
+ * reports success to its caller.
+ */
+export type TuiAdmissionRefusalReason =
+  | "busy" // another admitted turn owns the loop (no reentry allowed)
+  | "stale" // conversation generation moved on (Esc / conversation switch)
+  | "cancelled" // user cancellation was pending at admission
+  | "blocked" // a turn_start mod handler cancelled the turn
+  | "prepare_error" // preparation failed after reservation, before commit
+  | "queue_changed"; // the planned queue batch no longer matches the ready prefix
+
+/** How an admitted turn ended. Admission is handoff to the loop, not provider success. */
+export type TuiTurnOutcome =
+  | "completed"
+  | "interrupted"
+  | "error"
+  | "awaiting_approval";
+
+export type TuiTurnAdmission =
+  | { type: "not_admitted"; reason: TuiAdmissionRefusalReason }
+  | { type: "admitted"; outcome: TuiTurnOutcome };
 
 export type ProcessConversation = (
   input: Array<MessageCreate | ApprovalCreate>,
   options?: ProcessConversationOptions,
-) => Promise<void>;
+) => Promise<TuiTurnAdmission>;
+
+/** Coarse disposition of a submit attempt, for callers that need more than the Input `submitted` flag. */
+export type TuiSubmitStatus =
+  | "admitted" // the turn was admitted (see admission for the outcome)
+  | "queued" // agent was busy: content was enqueued in the native queue
+  | "retained" // refused before admission; content preserved for an explicit retry
+  | "command_handled"; // a slash command / hook handled the input; no agent turn
+
+export type TuiSubmitResult = {
+  /** Legacy Input adaptation flag: true when the input box may clear the draft. */
+  submitted: boolean;
+  status: TuiSubmitStatus;
+  /** Present when the request reached the conversation-loop admission gate. */
+  admission?: TuiTurnAdmission;
+  /** True when the refused draft should be retained rather than only restored. */
+  retained?: boolean;
+};
 
 export type AutoHandledToolResult = {
   toolCallId: string;

@@ -17,6 +17,7 @@ export type TuiQueueGatingConditions = {
   waitingForQueueCancel: boolean;
   userCancelled: boolean;
   abortControllerActive: boolean;
+  processingConversation?: boolean;
 };
 
 /**
@@ -32,7 +33,12 @@ export function getTuiBlockedReason(
   if (c.pendingApprovalsLen > 0) return "pending_approvals";
   if (c.queuedOverlayAction || c.anySelectorOpen) return "overlay_open";
   if (c.commandRunning) return "command_running";
-  if (c.streaming || c.isExecutingTool || c.abortControllerActive)
+  if (
+    c.streaming ||
+    c.isExecutingTool ||
+    c.abortControllerActive ||
+    c.processingConversation
+  )
     return "streaming";
   return null;
 }

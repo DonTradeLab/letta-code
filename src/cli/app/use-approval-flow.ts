@@ -20,17 +20,13 @@ import {
 } from "@/cli/helpers/accumulator";
 import type { AdvancedDiffSuccess } from "@/cli/helpers/diff";
 import { formatErrorDetails } from "@/cli/helpers/error-formatter";
-import {
-  buildQueuedContentParts,
-  buildQueuedUserText,
-  getQueuedNotificationSummaries,
-} from "@/cli/helpers/queued-message-parts";
 import { safeJsonParseOr } from "@/cli/helpers/safe-json-parse";
 import type { ApprovalRequest } from "@/cli/helpers/stream";
-import { flushEligibleLinesBeforeReentry } from "@/cli/helpers/subagent-turn-start";
 import { getRandomThinkingVerb } from "@/cli/helpers/thinking-messages";
+import { prepareQueueContinuation } from "@/cli/helpers/tui-queue-commit";
 import type { ApprovalContext } from "@/permissions/analyzer";
 import type { PermissionMode } from "@/permissions/mode";
+import type { QueueRuntime } from "@/queue/queue-runtime";
 import {
   analyzeToolApproval,
   checkToolPermission,
@@ -43,8 +39,9 @@ import type { QueuedMessage } from "@/utils/message-queue-bridge";
 
 import { buildApprovalBatchKey } from "./approval-diffs";
 import { getQuestionsFromApproval } from "./approval-questions";
+import { commitApprovalContinuation } from "./commit-approval-continuation";
 import { extractErrorMeta } from "./errors";
-import { appendOptimisticUserLine, createClientOtid } from "./ids";
+import { createClientOtid } from "./ids";
 import { sendDesktopNotification } from "./notifications";
 import type {
   AppCommandRunner,
@@ -82,7 +79,7 @@ type ApprovalFlowContext = {
     buffers: Buffers,
     opts?: { deferToolCalls?: boolean },
   ) => void;
-  consumeQueuedMessages: () => QueuedMessage[] | null;
+  tuiQueueRef: MutableRefObject<QueueRuntime | null>;
   queueModeRef: MutableRefObject<"immediate" | "defer">;
   conversationGenerationRef: MutableRefObject<number>;
   conversationId: string;
@@ -90,6 +87,7 @@ type ApprovalFlowContext = {
   executingToolCallIdsRef: MutableRefObject<string[]>;
   interruptQueuedRef: MutableRefObject<boolean>;
   isExecutingTool: boolean;
+  lastDequeuedMessageRef: MutableRefObject<string | null>;
   loadingState: AppLoadingState;
   openTrajectorySegment: () => void;
   pendingApprovals: ApprovalRequest[];
@@ -146,7 +144,7 @@ export function useApprovalFlow(ctx: ApprovalFlowContext) {
     closeTrajectorySegment,
     commandRunner,
     commitEligibleLines,
-    consumeQueuedMessages,
+    tuiQueueRef,
     queueModeRef,
     conversationGenerationRef,
     conversationId,
@@ -154,6 +152,7 @@ export function useApprovalFlow(ctx: ApprovalFlowContext) {
     executingToolCallIdsRef,
     interruptQueuedRef,
     isExecutingTool,
+    lastDequeuedMessageRef,
     loadingState,
     openTrajectorySegment,
     pendingApprovals,
@@ -553,15 +552,11 @@ export function useApprovalFlow(ctx: ApprovalFlowContext) {
           waitingForQueueCancelRef.current = false;
           queueSnapshotRef.current = [];
         } else {
-          const queuedItemsToAppend =
+          const continuationGeneration = conversationGenerationRef.current;
+          const queued =
             queueModeRef.current === "immediate"
-              ? consumeQueuedMessages()
+              ? prepareQueueContinuation(tuiQueueRef.current)
               : null;
-          const queuedNotifications = queuedItemsToAppend
-            ? getQueuedNotificationSummaries(queuedItemsToAppend)
-            : [];
-          const hadNotifications =
-            appendTaskNotificationEvents(queuedNotifications);
           const input: Array<MessageCreate | ApprovalCreate> = [
             {
               type: "approval",
@@ -569,40 +564,43 @@ export function useApprovalFlow(ctx: ApprovalFlowContext) {
               otid: createClientOtid(),
             },
           ];
-          if (queuedItemsToAppend && queuedItemsToAppend.length > 0) {
-            const queuedUserText = buildQueuedUserText(queuedItemsToAppend);
-            const queuedUserOtid = createClientOtid();
-            appendOptimisticUserLine(
-              buffersRef.current,
-              queuedUserText,
-              queuedUserOtid,
-            );
+          if (queued) {
             input.push({
               type: "message",
               role: "user",
-              content: buildQueuedContentParts(queuedItemsToAppend),
-              otid: queuedUserOtid,
+              content: queued.content,
+              otid: queued.userOtid,
             });
-            refreshDerived();
-          } else if (hadNotifications) {
-            refreshDerived();
           }
-          // Flush finished items synchronously before reentry. This avoids a
-          // race where deferred non-Task commits delay Task grouping while the
-          // reentry path continues.
-          flushEligibleLinesBeforeReentry(
-            commitEligibleLines,
-            buffersRef.current,
-          );
-          toolResultsInFlightRef.current = true;
-          await processConversation(input, { allowReentry: true });
-          toolResultsInFlightRef.current = false;
 
-          // Clear any stale queued results from previous interrupts.
-          // This approval flow supersedes any previously queued results - if we don't
-          // clear them here, they persist with matching generation and get sent on the
-          // next onSubmit, causing "Invalid tool call IDs" errors.
-          queueApprovalResults(null);
+          toolResultsInFlightRef.current = true;
+          try {
+            const result = await processConversation(input, {
+              allowReentry: true,
+              submissionGeneration: continuationGeneration,
+              admissionCommit: () =>
+                commitApprovalContinuation({
+                  queued,
+                  queue: tuiQueueRef.current,
+                  buffers: buffersRef.current,
+                  commitEligibleLines,
+                  appendTaskNotificationEvents,
+                  setLastDequeuedMessage: (message) => {
+                    lastDequeuedMessageRef.current = message;
+                  },
+                  refreshDerived,
+                  clearQueuedApprovalResults: () => queueApprovalResults(null),
+                }),
+            });
+            if (result.type === "not_admitted") {
+              queueApprovalResults(allResults as ApprovalResult[], {
+                conversationId: conversationIdRef.current,
+                generation: continuationGeneration,
+              });
+            }
+          } finally {
+            toolResultsInFlightRef.current = false;
+          }
         }
       } catch (error) {
         markIncompleteToolsAsCancelled(
@@ -641,8 +639,9 @@ export function useApprovalFlow(ctx: ApprovalFlowContext) {
       setStreaming,
       updateStreamingOutput,
       queueApprovalResults,
-      consumeQueuedMessages,
       appendTaskNotificationEvents,
+      tuiQueueRef,
+      lastDequeuedMessageRef,
       clearApprovalToolContext,
       syncTrajectoryElapsedBase,
       closeTrajectorySegment,

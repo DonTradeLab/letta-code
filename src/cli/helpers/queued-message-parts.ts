@@ -1,7 +1,10 @@
 import type { MessageCreate } from "@letta-ai/letta-client/resources/agents/agents";
 import type {
+  CronPromptQueueItem,
   DequeuedBatch,
   MessageQueueItem,
+  ModContinueQueueItem,
+  QueueItem,
   TaskNotificationQueueItem,
 } from "@/queue/queue-runtime";
 import { mergeQueuedTurnInput } from "@/queue/turn-queue-runtime";
@@ -48,6 +51,37 @@ export function buildQueuedUserText(queued: QueuedMessage[]): string {
     .join("\n");
 }
 
+/** Notification summaries for presentation, while retaining original QueueItems. */
+export function getQueueItemNotificationSummaries(
+  items: readonly QueueItem[],
+): string[] {
+  const summaries: string[] = [];
+  for (const item of items) {
+    if (item.kind !== "task_notification") continue;
+    const parsed = extractTaskNotificationsForDisplay(item.text);
+    summaries.push(...parsed.notifications);
+  }
+  return summaries;
+}
+
+/** User-only display text. Payload construction must use buildContentFromQueueItems. */
+export function buildQueueItemUserText(items: readonly QueueItem[]): string {
+  return items
+    .filter((item): item is MessageQueueItem => item.kind === "message")
+    .map((item) => {
+      if (typeof item.content === "string") return item.content;
+      return item.content
+        .filter(
+          (part): part is { type: "text"; text: string } =>
+            part.type === "text",
+        )
+        .map((part) => part.text)
+        .join("");
+    })
+    .filter((text) => text.length > 0)
+    .join("\n");
+}
+
 /**
  * Convert a QueueItem (message or task_notification) to the QueuedMessage
  * shape used by the TUI display state and callers of consumeQueuedMessages.
@@ -85,24 +119,43 @@ export function toQueuedMsg(
 export function buildContentFromQueueBatch(
   batch: DequeuedBatch,
 ): MessageCreate["content"] {
-  const queueInput = batch.items
+  return buildContentFromQueueItems(batch.items);
+}
+
+/** Build merged payload directly from original QueueItems (no display flattening). */
+export function buildContentFromQueueItems(
+  items: readonly QueueItem[],
+): MessageCreate["content"] {
+  const queueInput = items
     .filter(
-      (item): item is MessageQueueItem | TaskNotificationQueueItem =>
-        item.kind === "message" || item.kind === "task_notification",
+      (
+        item,
+      ): item is
+        | MessageQueueItem
+        | TaskNotificationQueueItem
+        | CronPromptQueueItem
+        | ModContinueQueueItem =>
+        item.kind === "message" ||
+        item.kind === "task_notification" ||
+        item.kind === "cron_prompt" ||
+        item.kind === "mod_continue",
     )
-    .map((item) =>
-      item.kind === "task_notification"
-        ? ({ kind: "task_notification", text: item.text } as const)
-        : ({
-            kind: "user",
-            content: item.content,
-          } as const),
-    );
+    .map((item) => {
+      if (item.kind === "task_notification") {
+        return { kind: "task_notification", text: item.text } as const;
+      }
+      if (item.kind === "cron_prompt") {
+        return { kind: "cron_prompt", text: item.text } as const;
+      }
+      return {
+        kind: "user",
+        content: item.kind === "message" ? item.content : item.text,
+      } as const;
+    });
 
   const merged = mergeQueuedTurnInput(queueInput, {
-    // For string content (common TUI case), apply paste-registry resolution
-    // exactly as buildQueuedContentParts does. For already-normalized content
-    // parts, pass through unchanged.
+    // Resolve display placeholders only for string content. Already-normalized
+    // multimodal parts pass through with identity and boundaries intact.
     normalizeUserContent: (content) =>
       typeof content === "string"
         ? buildMessageContentFromDisplay(content)

@@ -92,10 +92,6 @@ import { getReflectionSettings } from "@/cli/helpers/memory-reminder";
 import type { ExecutionPhase } from "@/cli/helpers/phase-visuals";
 import { maybeLaunchPostTurnReflection } from "@/cli/helpers/post-turn-reflection";
 import {
-  buildContentFromQueueBatch,
-  toQueuedMsg,
-} from "@/cli/helpers/queued-message-parts";
-import {
   buildReflectionArenaChoiceQuestions,
   finalizeReflectionArenaChoice,
   formatReflectionArenaDeferredMessage,
@@ -127,6 +123,11 @@ import {
   isShellTool,
 } from "@/cli/helpers/tool-name-mapping";
 import { isTaskTool } from "@/cli/helpers/tool-name-mapping.js";
+import {
+  enqueueRetainedTuiDraft,
+  planTuiDequeue,
+  shouldWakeTuiDequeue,
+} from "@/cli/helpers/tui-dequeue-attempt";
 import { getTuiBlockedReason } from "@/cli/helpers/tui-queue-adapter";
 import { createTuiQueueRuntime } from "@/cli/helpers/tui-queue-runtime";
 import type { WindowTitleData } from "@/cli/helpers/window-title-config";
@@ -162,11 +163,7 @@ import {
   isByokHandleForSelector,
   listProviders,
 } from "@/providers/byok-providers";
-import type {
-  MessageQueueItem,
-  QueueRuntime,
-  TaskNotificationQueueItem,
-} from "@/queue/queue-runtime";
+import type { QueueRuntime } from "@/queue/queue-runtime";
 import {
   createSharedReminderState,
   enqueueCommandIoReminder,
@@ -218,7 +215,7 @@ import {
   TEXT_WRAP_GUTTER,
   TOOL_CALL_COMMIT_DEFER_MS,
 } from "./constants";
-import { uid } from "./ids";
+import { createClientOtid, uid } from "./ids";
 import {
   countWrappedLines,
   countWrappedLinesFromList,
@@ -369,6 +366,7 @@ export function App({
   updateNotification = null,
   systemInfoReminderEnabled = true,
   modsDisabled = false,
+  agentModsDirectoryOverride,
 }: AppProps) {
   // Warm model availability so /model is fast on first open, and refresh the
   // runtime catalog. API mode keeps its persisted catalog on temporary failures.
@@ -478,6 +476,7 @@ export function App({
   // Whether a stream is in flight (disables input)
   // Uses synced state to keep ref in sync for reliable async checks
   const [streaming, setStreaming, streamingRef] = useSyncedState(false);
+  const [admissionPreparing, setAdmissionPreparing] = useState(false);
   const [networkPhase, setNetworkPhase] = useState<
     "upload" | "download" | "error" | null
   >(null);
@@ -564,9 +563,7 @@ export function App({
     >
   >([]);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
-  const [queuedApprovalResults, setQueuedApprovalResults] = useState<
-    ApprovalResult[] | null
-  >(null);
+  const [, setQueuedApprovalResults] = useState<ApprovalResult[] | null>(null);
   const queuedApprovalResultsRef = useRef<ApprovalResult[] | null>(null);
   const toolAbortControllerRef = useRef<AbortController | null>(null);
 
@@ -1414,9 +1411,6 @@ export function App({
     tuiQueueRef.current = createTuiQueueRuntime(setQueueDisplay);
   }
 
-  // Override content parts for queued submissions (to preserve part boundaries)
-  const overrideContentPartsRef = useRef<MessageCreate["content"] | null>(null);
-
   // Set up message queue bridge for background tasks
   // This allows non-React code (Task.ts) to add notifications to queueDisplay
   useEffect(() => {
@@ -1428,11 +1422,20 @@ export function App({
               kind: "task_notification",
               source: "task_notification",
               text: message.text,
+              agentId: message.agentId ?? agentIdRef.current,
+              conversationId:
+                message.conversationId ?? conversationIdRef.current,
+              actingUserId: message.actingUserId,
             } as Parameters<typeof tuiQueueRef.current.enqueue>[0])
           : ({
               kind: "message",
               source: message.source ?? "user",
               content: message.text,
+              clientMessageId: createClientOtid(),
+              agentId: message.agentId ?? agentIdRef.current,
+              conversationId:
+                message.conversationId ?? conversationIdRef.current,
+              actingUserId: message.actingUserId,
             } as Parameters<typeof tuiQueueRef.current.enqueue>[0]),
       );
       setDequeueEpoch((e) => e + 1);
@@ -1662,7 +1665,8 @@ export function App({
       streamingRef.current ||
       isExecutingTool ||
       commandRunningRef.current ||
-      abortControllerRef.current !== null
+      abortControllerRef.current !== null ||
+      processingConversationRef.current > 0
     );
   }, [isExecutingTool]);
 
@@ -1682,20 +1686,6 @@ export function App({
     (message: string) => appendTaskNotificationEvents([message]),
     [appendTaskNotificationEvents],
   );
-
-  // Queue callbacks remove consumed display entries by item ID.
-  const consumeQueuedMessages = useCallback((): QueuedMessage[] | null => {
-    const len = tuiQueueRef.current?.length ?? 0;
-    if (len === 0) return null;
-    const batch = tuiQueueRef.current?.consumeItems(len);
-    if (!batch) return null;
-    return batch.items
-      .filter(
-        (item): item is MessageQueueItem | TaskNotificationQueueItem =>
-          item.kind === "message" || item.kind === "task_notification",
-      )
-      .map(toQueuedMsg);
-  }, []);
 
   // Helper to wrap async handlers that need to close overlay and lock input
   // Closes overlay and sets commandRunning before executing, releases lock in finally
@@ -2289,9 +2279,10 @@ export function App({
     })),
   });
   const agentModsDirectory =
-    modContext.memfs.enabled && modContext.memfs.memoryDir
+    agentModsDirectoryOverride ??
+    (modContext.memfs.enabled && modContext.memfs.memoryDir
       ? join(modContext.memfs.memoryDir, "mods")
-      : null;
+      : null);
   const modAdapter = useLocalModAdapter(modContext, {
     agentModsDirectory,
     disabled: modsDisabled,
@@ -3716,7 +3707,6 @@ export function App({
     chatgptPlanSwapsRef,
     chatgptExhaustedProvidersRef,
     closeTrajectorySegment,
-    consumeQueuedMessages,
     queueModeRef,
     contextTrackerRef,
     conversationBusyRetriesRef,
@@ -3772,6 +3762,7 @@ export function App({
     setPendingApprovals,
     setRestoreQueueOnCancel,
     setRestoredInput,
+    setAdmissionPreparing,
     setStreaming,
     setConversationSummary,
     setTempModelOverride,
@@ -3817,7 +3808,7 @@ export function App({
     closeTrajectorySegment,
     commandRunner,
     commitEligibleLines,
-    consumeQueuedMessages,
+    tuiQueueRef,
     queueModeRef,
     conversationGenerationRef,
     conversationId,
@@ -3825,6 +3816,7 @@ export function App({
     executingToolCallIdsRef,
     interruptQueuedRef,
     isExecutingTool,
+    lastDequeuedMessageRef,
     loadingState,
     openTrajectorySegment,
     pendingApprovals,
@@ -4097,7 +4089,7 @@ export function App({
 
   const {
     checkPendingApprovalsForSlashCommand,
-    consumeQueuedApprovalInputForCurrentConversation,
+    peekQueuedApprovalInputForCurrentConversation,
     processConversationWithQueuedApprovals,
   } = useQueuedApprovalSubmit({
     agentId,
@@ -4160,7 +4152,6 @@ export function App({
   }, [reflectionArenaChoicePending, appendTaskNotificationEvents]);
 
   const onSubmit = useSubmitHandler({
-    abortControllerRef,
     agentDescription,
     agentId,
     agentIdRef,
@@ -4174,7 +4165,7 @@ export function App({
     checkPendingApprovalsForSlashCommand,
     commandRunner,
     commandRunning,
-    consumeQueuedApprovalInputForCurrentConversation,
+    peekQueuedApprovalInputForCurrentConversation,
     contextTrackerRef,
     conversationGenerationRef,
     conversationId,
@@ -4196,11 +4187,10 @@ export function App({
     hasBackfilledRef,
     isAgentBusy,
     isExecutingTool,
+    lastDequeuedMessageRef,
     llmConfigRef,
     maybeCarryOverActiveConversationModel,
     needsEagerApprovalCheck,
-    openTrajectorySegment,
-    overrideContentPartsRef,
     pendingApprovals,
     pendingConversationSwitchRef,
     pendingGitReminderRef,
@@ -4208,7 +4198,6 @@ export function App({
     processConversationWithQueuedApprovals,
     profileConfirmPending,
     projectDirectory,
-    queuedApprovalResults,
     queuedSystemPromptRecompileByConversationRef:
       _queuedSystemPromptRecompileByConversationRef,
     reasoningTabCycleEnabled,
@@ -4267,24 +4256,30 @@ export function App({
     onReload: handleReload,
   });
 
+  const handleRetainDraft = useCallback(
+    (draft: string) =>
+      enqueueRetainedTuiDraft({
+        queue: tuiQueueRef.current,
+        draft,
+        clientMessageId: createClientOtid(),
+        agentId: agentIdRef.current,
+        conversationId: conversationIdRef.current,
+      }),
+    [],
+  );
+
   const onSubmitRef = useRef(onSubmit);
   useEffect(() => {
     onSubmitRef.current = onSubmit;
   }, [onSubmit]);
-
-  // Process queued messages when streaming ends. QueueRuntime is authoritative
-  // (consumeItems fires onDequeued → setQueueDisplay). dequeueEpoch is the sole
-  // re-trigger: enqueue, turn completion, and interrupt settle (cancelling->idle).
   useEffect(() => {
     void dequeueEpoch; // explicit dep to satisfy exhaustive-deps lint
-
-    // Esc-parked user messages are skipped: only ready items count here.
+    void conversationId; // re-evaluate scoped batches after conversation switches
     const queueLen = tuiQueueRef.current?.readyLength ?? 0;
     const hasAnythingQueued = queueLen > 0;
     if (!hasAnythingQueued && (tuiQueueRef.current?.length ?? 0) > 0) {
       tuiQueueRef.current?.tryDequeue("paused_by_user");
     }
-
     if (
       !streaming &&
       hasAnythingQueued &&
@@ -4298,60 +4293,61 @@ export function App({
       !userCancelledRef.current && // Don't dequeue if user just cancelled
       !abortControllerRef.current && // Don't dequeue while processConversation is still active
       !dequeueInFlightRef.current && // Don't dequeue while previous dequeue submit is still in flight
-      // In defer mode, only dequeue when the agent is truly done:
-      // - last stop reason was end_turn (not requires_approval or error)
-      // - processingConversationRef === 0 (no nested processConversation calls outstanding)
-      (queueMode === "immediate" ||
-        (lastStopReasonRef.current === "end_turn" &&
-          processingConversationRef.current === 0))
+      processingConversationRef.current === 0 &&
+      (queueMode === "immediate" || lastStopReasonRef.current === "end_turn")
     ) {
-      // consumeItems(n) fires onDequeued → setQueueDisplay(prev => prev.slice(n)).
-      const batch = tuiQueueRef.current?.consumeItems(queueLen);
-      if (!batch) return;
-
-      // Build concatenated text for lastDequeuedMessageRef (error restoration).
-      const concatenatedMessage = batch.items
-        .map((item) => {
-          if (item.kind === "task_notification") return item.text;
-          if (item.kind === "message") {
-            return typeof item.content === "string" ? item.content : "";
-          }
-          return "";
-        })
-        .filter((t) => t.length > 0)
-        .join("\n");
-
-      const queuedContentParts = buildContentFromQueueBatch(batch);
-
-      debugLog(
-        "queue",
-        `Dequeuing ${batch.mergedCount} message(s): "${concatenatedMessage.slice(0, 50)}${concatenatedMessage.length > 50 ? "..." : ""}"`,
-      );
-
-      // Store before submit — allows restoration on error (ESC path).
-      lastDequeuedMessageRef.current = concatenatedMessage;
-
-      // Submit via normal flow — overrideContentPartsRef carries rich content parts.
-      overrideContentPartsRef.current = queuedContentParts;
-      // Lock prevents re-entrant dequeue if deps churn before processConversation
-      // sets abortControllerRef (which is the normal long-term gate).
       dequeueInFlightRef.current = true;
-      // Reset to immediate mode after each dequeue — defer is opt-in per batch.
-      setQueueMode("immediate");
-      void onSubmitRef.current(concatenatedMessage).finally(() => {
-        dequeueInFlightRef.current = false;
-        // If more items arrived while in-flight, bump epoch so the effect re-runs.
-        if ((tuiQueueRef.current?.length ?? 0) > 0) {
-          setDequeueEpoch((e) => e + 1);
+      const attemptAgentId = agentIdRef.current;
+      const attemptConversationId = conversationIdRef.current;
+      const attemptGeneration = conversationGenerationRef.current;
+      const plan = tuiQueueRef.current
+        ? planTuiDequeue(tuiQueueRef.current, {
+            agentId: attemptAgentId,
+            conversationId: attemptConversationId,
+          })
+        : null;
+      if (!plan || !("items" in plan)) {
+        if (plan) {
+          debugLog(
+            "queue",
+            `Retaining batch for scope ${plan.itemAgentId ?? "none"}/${plan.itemConversationId ?? "none"}`,
+          );
         }
-      });
+        dequeueInFlightRef.current = false;
+        return;
+      }
+      const { items: plannedItems, displayText: concatenatedMessage } = plan;
+      debugLog("queue", `Peeking ${plannedItems.length} queued item(s)`);
+      let submitResult: Awaited<ReturnType<typeof onSubmitRef.current>> | null =
+        null;
+      void onSubmitRef
+        .current(concatenatedMessage, {
+          queueItems: plannedItems,
+          submissionGeneration: attemptGeneration,
+          submissionConversationId: attemptConversationId,
+          onAdmitted: () => setQueueMode("immediate"),
+        })
+        .then((result) => {
+          submitResult = result;
+        })
+        .finally(() => {
+          dequeueInFlightRef.current = false;
+          if ((tuiQueueRef.current?.length ?? 0) === 0) return;
+          if (
+            shouldWakeTuiDequeue(
+              submitResult,
+              processingConversationRef.current === 0 &&
+                !userCancelledRef.current,
+            )
+          ) {
+            setDequeueEpoch((epoch) => epoch + 1);
+          }
+        });
     } else if (hasAnythingQueued) {
-      // Log why dequeue was blocked (useful for debugging stuck queues)
       debugLog(
         "queue",
-        `Dequeue blocked: streaming=${streaming}, queuedOverlayAction=${!!queuedOverlayAction}, pendingApprovals=${pendingApprovals.length}, commandRunning=${commandRunning}, isExecutingTool=${isExecutingTool}, anySelectorOpen=${anySelectorOpen}, waitingForQueueCancel=${waitingForQueueCancelRef.current}, userCancelled=${userCancelledRef.current}, abortController=${!!abortControllerRef.current}`,
+        `Dequeue blocked: streaming=${streaming}, queuedOverlayAction=${!!queuedOverlayAction}, pendingApprovals=${pendingApprovals.length}, commandRunning=${commandRunning}, isExecutingTool=${isExecutingTool}, anySelectorOpen=${anySelectorOpen}, waitingForQueueCancel=${waitingForQueueCancelRef.current}, userCancelled=${userCancelledRef.current}, abortController=${!!abortControllerRef.current}, processingConversation=${processingConversationRef.current}`,
       );
-      // Emit queue_blocked on blocked-reason transitions only (dedup via tryDequeue).
       const blockedReason = getTuiBlockedReason({
         streaming,
         isExecutingTool,
@@ -4362,6 +4358,7 @@ export function App({
         waitingForQueueCancel: waitingForQueueCancelRef.current,
         userCancelled: userCancelledRef.current,
         abortControllerActive: !!abortControllerRef.current,
+        processingConversation: processingConversationRef.current > 0,
       });
       if (blockedReason) {
         tuiQueueRef.current?.tryDequeue(blockedReason);
@@ -4377,6 +4374,7 @@ export function App({
     dequeueEpoch,
     queuedOverlayAction,
     queueMode,
+    conversationId,
   ]);
 
   const {
@@ -5076,6 +5074,7 @@ export function App({
         executionPhase={executionPhase}
         fileAutocompleteFdPath={fileAutocompleteFdPath}
         onSubmit={onSubmit}
+        onRetainDraft={handleRetainDraft}
         pendingApprovals={pendingApprovals}
         pendingConversationSwitchRef={pendingConversationSwitchRef}
         reflectionArenaChoicePending={
@@ -5128,6 +5127,7 @@ export function App({
         onTitlePreviewEnd={clearTerminalTitlePreviewOverride}
         modAdapter={modAdapter}
         streaming={streaming}
+        admissionPreparing={admissionPreparing}
         stubDescriptions={stubDescriptions}
         thinkingMessage={thinkingMessage}
         trajectoryTokenDisplay={trajectoryTokenDisplay}

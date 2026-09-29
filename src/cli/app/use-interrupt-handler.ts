@@ -245,7 +245,11 @@ export function useInterruptHandler(ctx: InterruptHandlerContext) {
       return;
     }
 
-    if (!streaming || interruptRequested) {
+    const isPreparingConversation =
+      !streaming &&
+      processingConversationRef.current > 0 &&
+      abortControllerRef.current !== null;
+    if ((!streaming && !isPreparingConversation) || interruptRequested) {
       return;
     }
     stopMonitors();
@@ -282,9 +286,12 @@ export function useInterruptHandler(ctx: InterruptHandlerContext) {
       // report busy while the cancelled turn unwinds.
       abortControllerRef.current?.abort();
 
-      // Set cancellation flag to prevent processConversation from starting
-      pendingInterruptRecoveryConversationIdRef.current =
-        conversationIdRef.current;
+      // Preparation has not contacted the backend, so only a genuinely
+      // streaming turn needs server-side interrupt recovery.
+      if (streaming) {
+        pendingInterruptRecoveryConversationIdRef.current =
+          conversationIdRef.current;
+      }
       userCancelledRef.current = true;
       // Park the user's queued messages: Esc stops the turn and holds them
       // until Enter on an empty input or the next message. System items
@@ -346,10 +353,11 @@ export function useInterruptHandler(ctx: InterruptHandlerContext) {
       setAutoHandledResults([]);
       setAutoDeniedApprovals([]);
 
-      // Send cancel request to backend asynchronously (fire-and-forget)
-      // Don't wait for it or show errors since user already got feedback
+      // Send cancel request only for an admitted backend stream. Preparation
+      // cancellation has no server turn to cancel.
       Promise.resolve()
         .then(() => {
+          if (!streaming) return;
           const cancelConversationId =
             conversationIdRef.current === "default"
               ? agentIdRef.current

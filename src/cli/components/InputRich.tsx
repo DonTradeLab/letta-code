@@ -881,6 +881,7 @@ EventEmitter.defaultMaxListeners = 20;
 export function Input({
   visible = true,
   streaming,
+  preparing = false,
   tokenCount,
   usedContextTokens = 0,
   contextWindowSize,
@@ -888,6 +889,7 @@ export function Input({
   thinkingMessage,
   includeSystemPromptUpgradeTip = true,
   onSubmit,
+  onRetainDraft,
   onBashSubmit,
   bashRunning = false,
   onBashInterrupt,
@@ -931,13 +933,17 @@ export function Input({
 }: {
   visible?: boolean;
   streaming: boolean;
+  preparing?: boolean;
   tokenCount: number;
   usedContextTokens?: number;
   contextWindowSize?: number | null;
   elapsedBaseMs?: number;
   thinkingMessage: string;
   includeSystemPromptUpgradeTip?: boolean;
-  onSubmit: (message?: string) => Promise<{ submitted: boolean }>;
+  onSubmit: (
+    message?: string,
+  ) => Promise<{ submitted: boolean; retained?: boolean }>;
+  onRetainDraft?: (draft: string) => void;
   onBashSubmit?: (command: string) => Promise<void>;
   bashRunning?: boolean;
   onBashInterrupt?: () => void;
@@ -980,6 +986,8 @@ export function Input({
   showInspirationalPromptHints?: boolean;
 }) {
   const [value, setValue] = useState("");
+  const liveValueRef = useRef(value);
+  liveValueRef.current = value;
   const [escapePressed, setEscapePressed] = useState(false);
   const escapeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ctrlCPressed, setCtrlCPressed] = useState(false);
@@ -1135,25 +1143,20 @@ export function Input({
     debugFlicker,
   ]);
 
-  // Command history
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [temporaryInput, setTemporaryInput] = useState("");
 
-  // Track if we just moved to a boundary (for two-step history navigation)
   const [atStartBoundary, setAtStartBoundary] = useState(false);
   const [atEndBoundary, setAtEndBoundary] = useState(false);
 
-  // Track preferred column for vertical navigation (sticky column behavior)
   const [preferredColumn, setPreferredColumn] = useState<number | null>(null);
 
-  // Restore input from error (only if current value is empty)
   useEffect(() => {
     if (restoredInput && value === "") {
       setValue(restoredInput);
       onRestoredInputConsumed?.();
     } else if (restoredInput && value !== "") {
-      // Input has content, don't clobber - just consume the restored value
       onRestoredInputConsumed?.();
     }
   }, [restoredInput, value, onRestoredInputConsumed]);
@@ -1219,7 +1222,6 @@ export function Input({
     return true;
   }, [isBashMode, bashExitArmed]);
 
-  // Reset cursor position after it's been applied
   useEffect(() => {
     if (cursorPos !== undefined) {
       const timer = setTimeout(() => setCursorPos(undefined), 0);
@@ -1228,14 +1230,12 @@ export function Input({
     return undefined;
   }, [cursorPos]);
 
-  // Reset bash exit arming when leaving bash mode
   useEffect(() => {
     if (!isBashMode && bashExitArmed) {
       setBashExitArmed(false);
     }
   }, [isBashMode, bashExitArmed]);
 
-  // If user types after first backspace-at-empty, disarm exit intent
   useEffect(() => {
     if (bashExitArmed && value.length > 0) {
       setBashExitArmed(false);
@@ -1320,7 +1320,7 @@ export function Input({
     if (process.env.LETTA_DEBUG_KEYS === "1" && key.escape) {
       // eslint-disable-next-line no-console
       console.error(
-        `[debug:InputRich:escape] escape=${key.escape} visible=${visible} onEscapeCancel=${!!onEscapeCancel} streaming=${streaming}`,
+        `[debug:InputRich:escape] escape=${key.escape} visible=${visible} onEscapeCancel=${!!onEscapeCancel} streaming=${streaming} preparing=${preparing}`,
       );
     }
     // Skip if onEscapeCancel is provided - handled by the confirmation handler above
@@ -1333,8 +1333,8 @@ export function Input({
         return;
       }
 
-      // When agent streaming, use Esc to interrupt
-      if (streaming && onInterrupt && !interruptRequested) {
+      // Streaming and pre-admission preparation share the same Esc contract.
+      if ((streaming || preparing) && onInterrupt && !interruptRequested) {
         onInterrupt();
         // Don't load queued messages into input - let the dequeue effect
         // in App.tsx process them automatically after the interrupt completes.
@@ -1410,27 +1410,21 @@ export function Input({
     }
   });
 
-  // Note: bash mode entry/exit is implemented inside PasteAwareTextInput so we can
-  // consume the keystroke before it renders (no flicker).
-
-  // Handle Shift+Tab for permission mode cycling
   useInput((_input, key) => {
     if (!interactionEnabled) return;
 
-    // Tab (no shift): cycle reasoning effort tiers for the current model (when idle).
-    // Only trigger when autocomplete is NOT active.
     if (
       key.tab &&
       !key.shift &&
       !isAutocompleteActive &&
       !streaming &&
+      !preparing &&
       onCycleReasoningEffort
     ) {
       onCycleReasoningEffort();
       return;
     }
 
-    // Debug logging for shift+tab detection
     if (process.env.LETTA_DEBUG_KEYS === "1" && (key.shift || key.tab)) {
       // eslint-disable-next-line no-console
       console.error(
@@ -1439,7 +1433,6 @@ export function Input({
     }
 
     if (key.shift && key.tab) {
-      // Cycle through permission modes
       const modes: PermissionMode[] = [
         "unrestricted",
         "acceptEdits",
@@ -1449,11 +1442,9 @@ export function Input({
       const nextIndex = (currentIndex + 1) % modes.length;
       const nextMode = modes[nextIndex] ?? "unrestricted";
 
-      // Update both singleton and local state
       permissionMode.setMode(nextMode);
       setCurrentMode(nextMode);
 
-      // Notify parent of mode change
       if (onPermissionModeChange) {
         onPermissionModeChange(nextMode);
       }
@@ -1678,11 +1669,19 @@ export function Input({
     setHistoryIndex(-1);
     setTemporaryInput("");
 
+    liveValueRef.current = "";
     setValue(""); // Clear immediately for responsiveness
     const result = await onSubmit(previousValue);
-    // If message was NOT submitted (e.g. pending approval), restore it
     if (!result.submitted) {
-      setValue(previousValue);
+      if (liveValueRef.current.length === 0) {
+        // No newer draft exists: restore the exact submitted text.
+        liveValueRef.current = previousValue;
+        setValue(previousValue);
+      } else if (result.retained && previousValue.trim()) {
+        // The user typed a newer draft while preparation was pending. Preserve
+        // both: keep the new draft visible and park the refused older one.
+        onRetainDraft?.(previousValue);
+      }
     }
   }, [
     isAutocompleteActive,
@@ -1691,6 +1690,7 @@ export function Input({
     bashRunning,
     onBashSubmit,
     onSubmit,
+    onRetainDraft,
   ]);
 
   const handleFileAutocompleteApply = useCallback(

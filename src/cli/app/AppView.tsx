@@ -263,7 +263,10 @@ type AppViewProps = {
   modelSelectorOptions: ModelSelectorOptions;
   networkPhase: "error" | "upload" | "download" | null;
   executionPhase: ExecutionPhase;
-  onSubmit: (message?: string) => Promise<{ submitted: boolean }>;
+  onSubmit: (
+    message?: string,
+  ) => Promise<{ submitted: boolean; retained?: boolean }>;
+  onRetainDraft: (draft: string) => void;
   pendingApprovals: ApprovalRequest[];
   pendingConversationSwitchRef: RefObject<ConversationSwitchContext | null>;
   pendingIds: Set<string>;
@@ -336,6 +339,7 @@ type AppViewProps = {
   modAdapter: LocalModAdapter;
   fileAutocompleteFdPath?: string | null;
   streaming: boolean;
+  admissionPreparing: boolean;
   stubDescriptions: Map<string, string>;
   thinkingMessage: string;
   trajectoryTokenDisplay: number;
@@ -434,6 +438,7 @@ export function AppView(props: AppViewProps) {
     executionPhase,
     fileAutocompleteFdPath,
     onSubmit,
+    onRetainDraft,
     pendingApprovals,
     pendingConversationSwitchRef,
     pendingIds,
@@ -481,6 +486,7 @@ export function AppView(props: AppViewProps) {
     onTitlePreviewEnd,
     modAdapter,
     streaming,
+    admissionPreparing,
     stubDescriptions,
     thinkingMessage,
     trajectoryTokenDisplay,
@@ -504,7 +510,6 @@ export function AppView(props: AppViewProps) {
       />
 
       <Box flexDirection="column">
-        {/* Loading screen / intro text */}
         {loadingState !== "ready" && (
           <WelcomeScreen
             loadingState={loadingState}
@@ -515,9 +520,7 @@ export function AppView(props: AppViewProps) {
 
         {loadingState === "ready" && (
           <>
-            {/* Transcript - wrapped in AnimationProvider for overflow-based animation control */}
             <AnimationProvider shouldAnimate={shouldAnimate}>
-              {/* Show liveItems always - all approvals now render inline */}
               {liveItems.length > 0 && (
                 <Box flexDirection="column">
                   {liveItems.map((ln) => {
@@ -654,7 +657,6 @@ export function AppView(props: AppViewProps) {
                 </Box>
               )}
 
-              {/* Fallback approval UI when backfill is disabled (no liveItems) */}
               {liveItems.length === 0 && currentApproval && (
                 <Box flexDirection="column">
                   <ApprovalSwitch
@@ -682,11 +684,9 @@ export function AppView(props: AppViewProps) {
                 </Box>
               )}
 
-              {/* Subagent group display - shows running/completed subagents */}
               <SubagentGroupDisplay />
             </AnimationProvider>
 
-            {/* Exit stats - shown when exiting via double Ctrl+C */}
             {showExitStats &&
               (() => {
                 const stats = sessionStatsRef.current.getSnapshot();
@@ -722,11 +722,11 @@ export function AppView(props: AppViewProps) {
               />
             )}
 
-            {/* Input row - always mounted to preserve state */}
             <Box marginTop={1}>
               <Input
                 visible={inputVisible}
                 streaming={streaming}
+                preparing={admissionPreparing}
                 tokenCount={trajectoryTokenDisplay}
                 usedContextTokens={usedContextTokens}
                 contextWindowSize={contextWindowSize}
@@ -734,6 +734,7 @@ export function AppView(props: AppViewProps) {
                 thinkingMessage={thinkingMessage}
                 includeSystemPromptUpgradeTip={includeSystemPromptUpgradeTip}
                 onSubmit={onSubmit}
+                onRetainDraft={onRetainDraft}
                 onBashSubmit={handleBashSubmit}
                 bashRunning={bashRunning}
                 onBashInterrupt={handleBashInterrupt}
@@ -785,7 +786,6 @@ export function AppView(props: AppViewProps) {
               />
             </Box>
 
-            {/* Model Selector - conditionally mounted as overlay */}
             {activeOverlay === "model" &&
               (modelReasoningPrompt ? (
                 <ModelReasoningSelector
