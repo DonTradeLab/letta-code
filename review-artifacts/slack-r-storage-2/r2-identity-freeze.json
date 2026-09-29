@@ -1,0 +1,43 @@
+{
+  "head": "1ff4d95eff41633e4fcf37a29a0587216666fe88",
+  "status": "A  src/backend/dev/native-inference-fallback.ts\nMM src/backend/dev/pi-stream-adapter.ts\nA  src/backend/dev/pi-stream-options.ts\nM  src/backend/local/local-backend.ts\nM  src/backend/local/local-executor-factory.ts\nA  src/backend/native-inference-fallback-integration.test.ts\nA  src/backend/native-inference-fallback.test.ts\nA  src/websocket/listener/native-inference-fallback-integration.test.ts\n",
+  "index_sha256": "b70f6960650127e3cfd5622faa1f7e9a8cbe56f9b92b35fc6d0a1bd731a09832",
+  "files": {
+    "src/utils/file-lock.ts": "fe70a13fad842c406cd480979b47871be2636e1dd369c14f95e9f15c3b0b62fc",
+    "src/utils/process-liveness.ts": "b6507ec79ebcfa297ebc7411350c9c8c87024909824d9d1d848e6f0fc08a8f5f",
+    "src/agent/approval-execution.ts": "160d8e91550f73a0c0730c3aa519e5c74c7cb5522c8840c5ee61a5dbd50a67cd",
+    "src/tools/impl/ask-user-question.ts": "5952597d722dafe8953390724b43921c3f28733f06175a0a9f6c0c30d259d562",
+    "src/backend/local/local-store.ts": "65481a23bb29413722631d66ad7f7d626821bcd39b13a8243593014ed8695bb5",
+    "src/backend/local/local-transcript.ts": "90c8740a296895ed29a78c86e05ccafe8c7f21d83a79b1face06ecc6a52b4026",
+    "src/backend/local/transcript-migration.ts": "596596f948a4384501c44bc2081e9447df143cf1fff7d0eb29a352cf159e3e2b",
+    "src/websocket/listener/interrupted-turn-record.ts": "e14714f1c045e9cc2764fdba444de48292991da03aec6f0d061643527bea48dc",
+    "src/websocket/listener/approval.ts": "a16cc1c2bd367cb0d4856ad1c138020f82d76e7c166524e7fc97b63cf0ac2b60",
+    "src/websocket/listener/approval-suggestions.ts": "f27098c23670f47fe655b946a0d0a5c0c777e2f8620e02a3ab1219296a6111a6",
+    "src/websocket/listener/turn-approval.ts": "780fa0aac5f3fbf517a0828319a995c4584abcd405165dfecbc0dbc694f96d9e",
+    "src/websocket/listener/recovery.ts": "95c6226a7099498adf1288a4d2d467510b704146cecdd91611841ccc94943aa3",
+    "src/websocket/listener/recovery-sync.ts": "2bfc6e724ce8cabdb056c830ce1977d8324d47672831c562ce57ea9c43f4fa14",
+    "src/websocket/listener/recovery-ownership.ts": "437ae47a2ff990c466bd99b0054d528fd501d1951022b3f573b997ce977735f2",
+    "src/websocket/listener/lifecycle.ts": "448bb472faf0c025583bf89b88e2a2d55d76de77fa1e4afc38395a760dde01c1",
+    "src/websocket/listener/turn-lifecycle.ts": "7ad72a3c5649c4db7ce91f3e5a82366311de49c640f70437245bb07a2f56a3cf"
+  },
+  "clean_vs_1ff4d95": {
+    "src/utils/file-lock.ts": true,
+    "src/utils/process-liveness.ts": true,
+    "src/agent/approval-execution.ts": true,
+    "src/tools/impl/ask-user-question.ts": true,
+    "src/backend/local/local-store.ts": true,
+    "src/backend/local/local-transcript.ts": true,
+    "src/backend/local/transcript-migration.ts": true,
+    "src/websocket/listener/interrupted-turn-record.ts": true,
+    "src/websocket/listener/approval.ts": true,
+    "src/websocket/listener/approval-suggestions.ts": true,
+    "src/websocket/listener/turn-approval.ts": true,
+    "src/websocket/listener/recovery.ts": true,
+    "src/websocket/listener/recovery-sync.ts": true,
+    "src/websocket/listener/recovery-ownership.ts": true,
+    "src/websocket/listener/lifecycle.ts": true,
+    "src/websocket/listener/turn-lifecycle.ts": true
+  },
+  "R_storage_1_sha256": "60708500d28bf2f99d0e6abb4e12520100c81a8cf4f00c2061a231f977cc38bd",
+  "current_design_sha256": "60708500d28bf2f99d0e6abb4e12520100c81a8cf4f00c2061a231f977cc38bd"
+}

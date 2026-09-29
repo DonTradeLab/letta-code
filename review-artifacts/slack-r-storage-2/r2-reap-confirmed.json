@@ -1,0 +1,28 @@
+{
+  "command": [
+    "bun",
+    "--no-env-file",
+    "--no-install",
+    "run",
+    "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/reap-race.ts"
+  ],
+  "cwd": "/Users/diegoveras/Code/letta-code/.letta/worktrees/native-inference-fallback",
+  "env": {
+    "PATH": "/Users/diegoveras/.antigravity-ide/antigravity-ide/bin:/Users/diegoveras/.grok/bin:/Users/diegoveras/bin:/Users/diegoveras/.local/bin:/Users/diegoveras/.bun/bin:/Users/diegoveras/Library/Python/3.9/bin:/Users/diegoveras/.local/state/fnm_multishells/11306_1790268518602/bin:/Users/diegoveras/.fnm:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/opt/homebrew/bin:/Applications/Ghostty.app/Contents/MacOS:/Users/diegoveras/.orbstack/bin",
+    "HOME": "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/r2-reap-confirmed-op5cfb6t/home",
+    "LETTA_LOCAL_BACKEND_DIR": "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/r2-reap-confirmed-op5cfb6t/state",
+    "TMPDIR": "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/r2-reap-confirmed-op5cfb6t/tmp",
+    "XDG_CONFIG_HOME": "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/r2-reap-confirmed-op5cfb6t/home/config",
+    "XDG_CACHE_HOME": "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/r2-reap-confirmed-op5cfb6t/cache",
+    "BUN_INSTALL_CACHE_DIR": "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/r2-reap-confirmed-op5cfb6t/cache/bun",
+    "DISABLE_AUTOUPDATER": "1",
+    "DO_NOT_TRACK": "1",
+    "CI": "1",
+    "NODE_ENV": "test",
+    "GIT_OPTIONAL_LOCKS": "0",
+    "STORAGE_PROOF_ROOT": "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/r2-reap-confirmed-op5cfb6t"
+  },
+  "exit_code": 0,
+  "seconds": 7.328,
+  "log": "/Users/diegoveras/.letta/tmp/slack-recover-20260928/reparo-profundo/desenho-contrato-decisao/r2-reap-confirmed.log"
+}
