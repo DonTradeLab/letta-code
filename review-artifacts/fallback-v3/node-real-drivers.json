@@ -1,0 +1,78 @@
+{
+  "runtime": "node v24.14.0",
+  "bunRuntime": null,
+  "requests": [
+    {
+      "path": "/chat/completions",
+      "model": "primary-model",
+      "authorization": "Bearer fake-primary-key",
+      "messages": [
+        { "role": "system", "content": "system" },
+        { "role": "user", "content": "same node input" }
+      ]
+    },
+    {
+      "path": "/chat/completions",
+      "model": "secondary-model",
+      "authorization": "Bearer fake-secondary-key",
+      "messages": [
+        { "role": "system", "content": "system" },
+        { "role": "user", "content": "same node input" }
+      ]
+    }
+  ],
+  "requestInputsEqual": true,
+  "dispatches": [
+    {
+      "handle": "fixture-primary/primary-model",
+      "provider": "fixture-primary",
+      "model": "primary-model",
+      "baseUrl": "http://127.0.0.1:49332"
+    },
+    {
+      "handle": "fixture-secondary/secondary-model",
+      "provider": "fixture-secondary",
+      "model": "secondary-model",
+      "baseUrl": "http://127.0.0.1:49332"
+    }
+  ],
+  "attempts": [
+    {
+      "attempt": 1,
+      "model": "fixture-primary/primary-model",
+      "provider": "fixture-primary",
+      "outcome": "started"
+    },
+    {
+      "attempt": 1,
+      "model": "fixture-primary/primary-model",
+      "provider": "fixture-primary",
+      "outcome": "quota",
+      "status": 429,
+      "code": "1310"
+    },
+    {
+      "attempt": 2,
+      "model": "fixture-secondary/secondary-model",
+      "provider": "fixture-secondary",
+      "outcome": "started"
+    },
+    {
+      "attempt": 2,
+      "model": "fixture-secondary/secondary-model",
+      "provider": "fixture-secondary",
+      "outcome": "success"
+    }
+  ],
+  "resolutions": [
+    {
+      "category": "quota_exhausted",
+      "provider": "fixture-primary",
+      "status": 429,
+      "code": "1310"
+    }
+  ],
+  "text": "node-real-secondary-success",
+  "thrown": null,
+  "sameInputId": "node-real-v3-otid"
+}

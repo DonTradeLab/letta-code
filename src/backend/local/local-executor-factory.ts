@@ -3,6 +3,7 @@ import {
   DeterministicReflectionExecutor,
   type HeadlessTurnExecutor,
 } from "@/backend/dev/headless-turn-executor";
+import type { NativeInferenceFallbackPolicy } from "@/backend/dev/native-inference-fallback";
 import type { LocalPiModelsRuntime } from "@/backend/dev/pi-models-runtime";
 import {
   type LocalContextPressure,
@@ -28,6 +29,8 @@ export interface CreateLocalExecutorOptions {
   executionMode?: LocalBackendExecutionMode;
   executor?: HeadlessTurnExecutor;
   stream?: PiStreamFunction;
+  /** Prototype-only injected policy; never configured by production startup. */
+  nativeInferenceFallback?: NativeInferenceFallbackPolicy;
 }
 
 type LocalCompactionCallback = (
@@ -69,6 +72,7 @@ export function createLocalExecutor(
       onContextPressure,
       onLlmStart,
       onLlmEnd,
+      nativeInferenceFallback: options.nativeInferenceFallback,
     }),
   );
 }

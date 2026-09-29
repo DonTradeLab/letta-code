@@ -1,0 +1,71 @@
+RECIBO DE TESTES — FALLBACK ISOLADO V3
+
+Correção do FAIL V2:
+- entrega centralizada em emitNativeGuardedEvents
+- revalidação imediatamente antes de cada yield
+- revalidação imediatamente após o consumidor retomar cada yield
+- abort/perda de owner/mudança manual entre eventos geram NativeInferenceAttemptInvalidatedError
+- texto já entregue permanece, mas toolcall_end/local-message/done posteriores não escapam
+- eventos de compaction e retry também usam a fronteira guardada
+- awaits de compaction e backoff têm revalidação posterior
+
+Contraprova independente intacta:
+Fonte: ../revisao-prototipo-v2/contraprova-flush.ts
+SHA-256: 897757dc322d47230fe1e4798853859d02711a85d723d20c4efc7f3c3647a767
+Resultado V3 para abort e owner após primeiro pull:
+- persisted=[text_delta]
+- error=NativeInferenceAttemptInvalidatedError
+- toolcall_end:Write ausente
+- local-message:Write ausente
+- done ausente
+Recibo: contraprova-flush-reexecutada.json
+
+Cobertura adicional da autora:
+- abort entre eventos
+- perda de owner entre eventos
+- mudança manual entre eventos
+Todos invalidam antes do toolcall_end que dispararia efeito.
+
+Prova Node com dois drivers reais:
+- Node v24.14.0; process.versions.bun=null
+- catálogo sintético legítimo via registerPiProvider + LocalPiModelsRuntime
+- fixture-primary/primary-model e fixture-secondary/secondary-model
+- os dois modelos usam streamSimple openai-completions sem reescrita no dispatch
+- duas chamadas POST /chat/completions em 127.0.0.1
+- duas chaves falsas distintas resolvidas pelo catálogo
+- primário HTTP 429 + code 1310
+- secundário SSE HTTP 200 com texto node-real-secondary-success
+- model/provider/baseUrl do dispatch coerentes com cada request
+- requestInputsEqual=true; sameInputId=node-real-v3-otid
+- attempts: fixture-primary quota -> fixture-secondary success
+- zero stub de provider e zero provider/API/credencial real
+Arquivos: node-real-drivers.ts, node-real-drivers.mjs, node-real-drivers.json
+
+Matriz completa obrigatória:
+bun test src/backend/native-inference-fallback.test.ts src/backend/native-inference-fallback-integration.test.ts src/websocket/listener/native-inference-fallback-integration.test.ts src/backend/pi-stream-adapter-retry.test.ts src/backend/provider-turn-executor.test.ts src/backend/local-provider-errors.test.ts
+Resultado: PASS — 52 testes, 0 falhas, 159 asserções.
+
+A matriz mantém:
+- envelope real 429/1310 e negativos
+- output/tool call parcial e limite de buffer
+- destino incompatível e cadeia esgotada
+- listener/backend/executor/sink
+- efeito real em arquivo TMPDIR uma vez
+- pending/deny
+- identidade/lineage sintéticas fail-closed
+- cancelamento/owner/manual antes da tentativa e agora durante flush
+- regressões de retry/transporte e conversão
+
+Ambiente final:
+- env -i, PATH allowlisted
+- HOME/LETTA_HOME/LETTA_LOCAL_BACKEND_DIR/XDG_CONFIG_HOME/XDG_CACHE_HOME/TMPDIR sintéticos
+- LETTA_LOCAL_BACKEND_EXPERIMENTAL=1
+- raiz: /var/folders/0x/xz_9jf016jsdnnp6ztjtfw8c0000gn/T/tmp.XNf0C6vbLM
+- antes/depois: somente cache/bun adicional sob a raiz sintética
+
+Consolidação:
+- bun run check: PASS 12/12
+- bun run build: PASS
+- letta.js SHA-256: 9dff2a7b4d97f8dc3c150b6e3353ce1114ef8bcb99b74a3350f326b967581716
+
+Nenhum commit, add, reset, restore, stash, push, merge, restart, serviço, configuração real, segredo ou provider real foi usado.

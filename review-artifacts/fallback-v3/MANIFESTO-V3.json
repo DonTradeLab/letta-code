@@ -1,0 +1,59 @@
+{
+  "candidate": "native-inference-fallback-v3",
+  "status": "laboratory_candidate_not_applied",
+  "base": {
+    "worktree": "/Users/diegoveras/Code/letta-code/.letta/worktrees/native-inference-fallback",
+    "branch": "letta/native-inference-fallback-a0fb3219",
+    "head": "1ff4d95eff41633e4fcf37a29a0587216666fe88",
+    "version": "0.33.6"
+  },
+  "v3_fix": {
+    "delivery_guard": "isAttemptCurrent/abort revalidated before and after every yielded event",
+    "covered_deliveries": ["buffer flush", "compaction events", "retry events"],
+    "post_await_validation": ["context overflow compaction", "retry backoff"],
+    "partial_flush_policy": "already delivered text remains; later tool/local-message/done are withheld and invalidation is thrown"
+  },
+  "independent_flush_counterproof": {
+    "source": "../revisao-prototipo-v2/contraprova-flush.ts",
+    "source_sha256": "897757dc322d47230fe1e4798853859d02711a85d723d20c4efc7f3c3647a767",
+    "source_modified": false,
+    "abort_persisted": ["text_delta"],
+    "owner_persisted": ["text_delta"],
+    "error": "NativeInferenceAttemptInvalidatedError",
+    "tool_effect_event_escaped": false
+  },
+  "node_real_driver_proof": {
+    "runtime": "node v24.14.0",
+    "bunRuntime": null,
+    "provider_catalog": ["fixture-primary/primary-model", "fixture-secondary/secondary-model"],
+    "requests": 2,
+    "driver": "streamSimple openai-completions for both attempts",
+    "primary": "HTTP 429 code 1310",
+    "secondary": "real SSE HTTP 200 success",
+    "dispatch_identity_coherent": true,
+    "request_inputs_equal": true,
+    "sameInputId": "node-real-v3-otid",
+    "provider_stub": false,
+    "model_rewrite_in_dispatch": false
+  },
+  "tests": {
+    "focused": { "passed": 52, "failed": 0, "assertions": 159 },
+    "check": "12/12 PASS",
+    "build": "PASS"
+  },
+  "environment": "env -i; synthetic HOME/backend/config/cache/TMPDIR; loopback only; fake keys",
+  "index": {
+    "preexisting": "V2 staged",
+    "final": "V3 unstaged on top: MM/AM; untouched staged-only files preserved",
+    "index_mtime": "2026-09-29 11:13:30",
+    "author_index_commands": "none; no add/reset/restore/stash"
+  },
+  "forbidden_actions": {
+    "commit": false,
+    "push": false,
+    "merge": false,
+    "restart": false,
+    "service_change": false,
+    "real_provider_or_secret": false
+  }
+}

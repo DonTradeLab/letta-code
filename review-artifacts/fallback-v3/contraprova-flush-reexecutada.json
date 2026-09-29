@@ -1,0 +1,18 @@
+{
+  "source_intact": "../revisao-prototipo-v2/contraprova-flush.ts",
+  "abort": {
+    "label": "abort",
+    "persisted": ["text_delta"],
+    "error": "NativeInferenceAttemptInvalidatedError",
+    "aborted": true
+  },
+  "owner": {
+    "label": "owner",
+    "persisted": ["text_delta"],
+    "error": "NativeInferenceAttemptInvalidatedError",
+    "aborted": false
+  },
+  "toolcall_end_persisted": false,
+  "local_message_persisted": false,
+  "done_persisted": false
+}

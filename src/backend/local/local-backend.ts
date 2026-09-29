@@ -19,6 +19,7 @@ import {
   HeadlessBackend,
 } from "@/backend/dev/headless-backend";
 import type { HeadlessTurnExecutor } from "@/backend/dev/headless-turn-executor";
+import type { NativeInferenceFallbackPolicy } from "@/backend/dev/native-inference-fallback";
 import { LocalPiModelsRuntime } from "@/backend/dev/pi-models-runtime";
 import type {
   LocalContextPressure,
@@ -83,6 +84,8 @@ export interface LocalBackendOptions {
   memoryDir?: string;
   memfsEnabled?: boolean;
   modelsRuntime?: LocalPiModelsRuntime;
+  /** Prototype-only injected policy; production startup never sets this. */
+  nativeInferenceFallback?: NativeInferenceFallbackPolicy;
 }
 /**
  * Hooks the harness installs (via {@link LocalBackend.setModEventHooks}) so
